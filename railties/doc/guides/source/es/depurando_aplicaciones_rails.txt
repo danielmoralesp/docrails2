@@ -1,0 +1,638 @@
+Depurando Aplicaciones Rails
+============================
+
+Esta guía le introducirá a las técnicas de depuración para aplicaciones Ruby on Rails. Empleando esta guía estará en la capacidad de:
+
+* Comprender el propósito de depurar.
+* Identificar fallos y problemas en la aplicación que las pruebas (test) no están identificaando.
+* Aprender las diferentes formas de depurar
+* Analizar la pila de instrucciones (stack trace)
+
+== Examinar Ayudantes (Helpers) para la Depuración
+
+Una tarea común es inspeccionar el contenido de una variable. En Rails, esto se puede hacer empleando tres métodos:
+
+* `debug`
+* `to_yaml`
+* `inspect`
+
+=== debug
+
+El ayudante `debug` regresará una etiqueta <pre> que generara el objeto empleando el formato YAML. Esto generará datos que pueden ser leidos por los humanos a partir de cualquier objeto. Por ejemplo, si tiene el siguiente código en una vista:
+
+[source, html]
+----------------------------------------------------------------------------
+<%= debug @post %>
+<p>
+  <b>Title:</b>
+  <%=h @post.title %>
+</p>
+----------------------------------------------------------------------------
+
+Verá algo como lo siguiente:
+
+[source, log]
+----------------------------------------------------------------------------
+--- !ruby/object:Post
+attributes:
+  updated_at: 2008-09-05 22:55:47
+  body: It's a very helpful guide for debugging your Rails app.
+  title: Rails debugging guide
+  published: t
+  id: "1"
+  created_at: 2008-09-05 22:55:47
+attributes_cache: {}
+
+
+Title: Rails debugging guide
+----------------------------------------------------------------------------
+
+=== to_yaml
+
+Mostrar una variable de instancia, cualquier otro objeto o método en formato YAML se puede lograr de la siguiente manera: 
+
+[source, html]
+----------------------------------------------------------------------------
+<%= simple_format @post.to_yaml %>
+<p>
+  <b>Title:</b>
+  <%=h @post.title %>
+</p>
+----------------------------------------------------------------------------
+
+El método  `to_yaml` convierte el método a formato WAML, haciendolo más legible, luego se usa el ayudante `simple_format` para generar cada linea como en la consola. Así es como el método `debug` hace su mágia.
+
+Como resultado de ello, tendrá algo como siguiente en su vista (view):
+
+[source, log]
+----------------------------------------------------------------------------
+--- !ruby/object:Post
+attributes:
+updated_at: 2008-09-05 22:55:47
+body: It's a very helpful guide for debugging your Rails app.
+title: Rails debugging guide
+published: t
+id: "1"
+created_at: 2008-09-05 22:55:47
+attributes_cache: {}
+
+Title: Rails debugging guide
+----------------------------------------------------------------------------
+
+=== inspect
+
+Otro método útil para mostrar los valores de un objeto es `inspect`, especialmente cuando se trabaja con arreglos y hashes. Lo siguiente mostrará el valir del objeto como una cadena. Por ejemplo:
+
+[source, html]
+----------------------------------------------------------------------------
+<%= [1, 2, 3, 4, 5].inspect %>
+<p>
+  <b>Title:</b>
+  <%=h @post.title %>
+</p>
+----------------------------------------------------------------------------
+
+Generará algo como lo siguiente:
+
+[source, log]
+----------------------------------------------------------------------------
+[1, 2, 3, 4, 5]
+
+Title: Rails debugging guide
+----------------------------------------------------------------------------
+
+== The Logger
+
+Támbien puede ser util para almacenar información en los archivos de bitácora en tiempo de ejecución. Rails mantiene archivos de bitácoras separados para cada entorno de ejecución.
+
+=== Ques es el Logger?
+
+Rails hace uso del gestor de bitácoras estándar de Ruby,`logger`, para escribir información. El mismo, puede ser reemplazado por otras opciones como `Log4R` si lo desea.
+
+Se puede especificar un gestor de bitácoras alternativo en el archivo +environment.rb+ o en cualquier archivo del entorno:
+
+[source, ruby]
+----------------------------------------------------------------------------
+ActiveRecord::Base.logger = Logger.new(STDOUT)
+ActiveRecord::Base.logger = Log4r::Logger.new("Application Log")
+----------------------------------------------------------------------------
+
+O en la sección +Initializer+, agregue _cualquiera_ de los siguientes:
+
+[source, ruby]
+----------------------------------------------------------------------------
+config.logger = Logger.new(STDOUT)
+config.logger = Log4r::Logger.new("Application Log")
+----------------------------------------------------------------------------
+
+[NOTA]
+Por defecto, cada archivo de bitácora es creado bajo `RAILS_ROOT/log/`, donde el nombre del archivo es +entorno_nombre.log+.
+
+=== Niveles de Bitácoras
+
+Cuando algo es registrado, se envia al archivo correspondiente si el nivel de bitácora del mensaje es mayor o igual que el que se encuentra configurado. Si quiere saber el nivel de bitácora actual, puede llamar al método `ActiveRecord::Base.logger.level`.
+
+Los niveles de las bitácoras son: +:debug+, +:info+, +:warn+, +:error+, y +:fatal+, que as su vez corresponde con niveles que van desde el 0 al 4, respectivamente. Para cambiar el nivel de las bitácoras por defecto:
+
+[source, ruby]
+----------------------------------------------------------------------------
+config.log_level = Logger::WARN # In any environment initializer, or
+ActiveRecord::Base.logger.level = 0 # at any time
+----------------------------------------------------------------------------
+
+Esto es útil cuando se quiere hacer seguimiento a las bitácoras en los ambientes de desarrollo (development) ó pre-producción (staging), pero no se quiere inundar las bitácoras de producción con información innecesaria.
+
+[NOTA]
+El nivel de bitácoras por defecto en Rails es +info+ para el ambiente de producción, y +debug+ para los ambientes de desarrollo y pruebas (testing).
+
+=== Enviando Mensajes 
+
+Para escribir en el archivo de bitácoras actual use el método `logger.(debug|info|warn|error|fatal)` desde dentro del controlodor, model o mensajero de correos (mailer):
+
+[source, ruby]
+----------------------------------------------------------------------------
+logger.debug "Person attributes hash: #{@person.attributes.inspect}"
+logger.info "Processing the request..."
+logger.fatal "Terminating application, raised unrecoverable error!!!"
+----------------------------------------------------------------------------
+
+Aquí hay un ejemplo de un método implementado con niveles de bitácora adicionales:
+
+[source, ruby]
+----------------------------------------------------------------------------
+class PostsController < ApplicationController
+  # ...
+
+  def create
+    @post = Post.new(params[:post])
+    logger.debug "New post: #{@post.attributes.inspect}"
+    logger.debug "Post should be valid: #{@post.valid?}"
+
+    if @post.save
+      flash[:notice] = 'Post was successfully created.'
+      logger.debug "The post was saved and now is the user is going to be redirected..."
+      redirect_to(@post)
+    else
+      render :action => "new"
+    end
+  end
+
+  # ...
+end
+----------------------------------------------------------------------------
+
+Este es un ejemplo del texto generado por este método:
+
+[source, log]
+----------------------------------------------------------------------------
+Processing PostsController#create (for 127.0.0.1 at 2008-09-08 11:52:54) [POST]
+  Session ID: BAh7BzoMY3NyZl9pZCIlMDY5MWU1M2I1ZDRjODBlMzkyMWI1OTg2NWQyNzViZjYiCmZsYXNoSUM6J0FjdGl
+vbkNvbnRyb2xsZXI6OkZsYXNoOjpGbGFzaEhhc2h7AAY6CkB1c2VkewA=--b18cd92fba90eacf8137e5f6b3b06c4d724596a4
+  Parameters: {"commit"=>"Create", "post"=>{"title"=>"Debugging Rails", 
+ "body"=>"I'm learning how to print in logs!!!", "published"=>"0"}, 
+ "authenticity_token"=>"2059c1286e93402e389127b1153204e0d1e275dd", "action"=>"create", "controller"=>"posts"}
+New post: {"updated_at"=>nil, "title"=>"Debugging Rails", "body"=>"I'm learning how to print in logs!!!", 
+ "published"=>false, "created_at"=>nil}
+Post should be valid: true
+  Post Create (0.000443)   INSERT INTO "posts" ("updated_at", "title", "body", "published", 
+ "created_at") VALUES('2008-09-08 14:52:54', 'Debugging Rails', 
+ 'I''m learning how to print in logs!!!', 'f', '2008-09-08 14:52:54')
+The post was saved and now is the user is going to be redirected...
+Redirected to #<Post:0x20af760>
+Completed in 0.01224 (81 reqs/sec) | DB: 0.00044 (3%) | 302 Found [http://localhost/posts]
+----------------------------------------------------------------------------
+
+Agregar niveles adicionales de bitácora como este facilita la búsqueda de conducta inusual en sus logs. Toda vez que se implemente, se hará necesario asegurarse de hacer uso adecuado de los mismos, para evitar llenar las bitácoras del ambiente de producción con información inútil.
+
+== Depurando con ruby-debug
+
+Cuando su código se comporta de manera inesperada, puede intentar enviar información a lás bitácoras o a la consola para diagnosticar el fallo. Desarfortunadamente, hay muchas ocasiones en la que este tipo de estrxiategia no permite encontrar la raíz del problema. Cuando se requiere examinar el código fuente, el depurador será su mejor aliado.
+
+El depurador puede ayudarle si quiere aprender sobre el código fuente de Rails pero no sabe por donde empezar. Solo depure cualquier solicitud que le reciba en un aplicación y utilice esta guía para aprender como ir desde el código que ha escrito hacia las profundidades del código en Rails.
+
+=== Setup
+
+El depurador empleado por Rails, +ruby-debug+, viene como una gema. Para instalarlo ejecute la siguiente secuencia de comandos: 
+
+[source, shell]
+----------------------------------------------------------------------------
+$ sudo gem install ruby-debug
+----------------------------------------------------------------------------
+
+En el caso de que quiera descargar una versión en particular o obtener el código fuente, consulte link:http://rubyforge.org/projects/ruby-debug/[project's page on rubyforge].
+
+Rails cuaenta con soporte integrado para ruby-debug desde Rails 2.0. Dentro de cualquier aplicación Rails se puede invocar el depurador mediante una llamada al método `debugger`.
+
+Aquí hay un ejemplo:
+
+[source, ruby]
+----------------------------------------------------------------------------
+class PeopleController < ApplicationController
+  def new
+    debugger
+    @person = Person.new
+  end
+end
+----------------------------------------------------------------------------
+
+Si ve el siguiente mensane en la consola o en las bitácoras:
+
+[source, log]
+----------------------------------------------------------------------------
+***** Debugger requested, but was not available: Start server with --debugger to enable *****
+----------------------------------------------------------------------------
+
+Asegurese de que ha iniciado el servidor Web con la opción +--debugger+:
+
+[source, shell]
+----------------------------------------------------------------------------
+~/PathTo/rails_project$ script/server --debugger
+=> Booting Mongrel (use 'script/server webrick' to force WEBrick)
+=> Rails 2.2.0 application starting on http://0.0.0.0:3000
+=> Debugger enabled
+...
+----------------------------------------------------------------------------
+
+[NOTA]
+En el modo desarrollo, puede hacer lo siguiente de manera dinámica: `require \'ruby-debug\'`, en vez de reiniciar el servidor, en caso de no haberlo iniciado con la opción `--debugger`.
+
+Para usar la depuración en Rails, necesitará estar ejecuando su aplicación sobre *WEBrick* o *Mongrel*. Por el momento no existe soporte para servidores alternativos.
+
+=== La Consola
+
+Tan pronto como su aplicación llama al método `debugger`, el depurador se iniciará en una consola para depuración dentro de la ventana desde cual se está ejecutando el servidor de aplicaciones, luego de lo cual encontrará en el interprete de comandos de ruby-debug `(rdb:n)`. La _n_ indica el número de hilos. El interprete le montrará la siguiente linea de código que se encuentra pendiente por ejecutar.
+
+Si llegó allí por una petición desde el navegador, la pestaña (tab) que envió la petición permanecerá en espera hasta que el depurador haya terminado y se haya completado la traza para completar el procesamiento de la petición.
+
+Por ejemplo:
+
+----------------------------------------------------------------------------
+@posts = Post.find(:all)
+(rdb:7)
+----------------------------------------------------------------------------
+
+Ahora llegó el momento de jugar y examinar su aplicación. U buen lugar para empezar es solicitandole ayuda al depurador... con el comando: `help` (No la viste venir, ¿cierto?)
+
+----------------------------------------------------------------------------
+(rdb:7) help
+ruby-debug help v0.10.2
+Type 'help <command-name>' for help on a specific command
+
+Available commands:
+backtrace  delete   enable  help    next  quit     show    trace
+break      disable  eval    info    p     reload   source  undisplay
+catch      display  exit    irb     pp    restart  step    up
+condition  down     finish  list    ps    save     thread  var
+continue   edit     frame   method  putl  set      tmate   where
+----------------------------------------------------------------------------
+
+[NOTA]
+Para ver el menu de ayuda de cualquier comando: `help <command-name>` con el modo de depuración activo. Por ejemplo: _+help var+_
+
+El sigueinte comando que aprederá es uno de los más útiles: `list`. Adicionalmente, se pueden abreviar comandos de ruby-debug siempre y cuando se provean suficientes comandos para distinguirlos de otros ya existentes, así por ejemplo podría usar +l+ para el comando +list+.
+
+Este comando indica en donde se encuetra en el código escribiendo 10 lines centradas a los lados de la linea actual; la linea actual en este caso en particular es la número 6 y esta identificada con el los caracteres +=>+.
+
+----------------------------------------------------------------------------
+(rdb:7) list
+[1, 10] in /PathToProject/posts_controller.rb
+   1  class PostsController < ApplicationController
+   2    # GET /posts
+   3    # GET /posts.xml
+   4    def index
+   5      debugger
+=> 6      @posts = Post.find(:all)
+   7
+   8      respond_to do |format|
+   9        format.html # index.html.erb
+   10        format.xml  { render :xml => @posts }
+----------------------------------------------------------------------------
+
+Si repite el comando +list+, pero esta vez solo empleando la letra `l`, las próximas diez lineas del archivo se mostrarán.
+
+----------------------------------------------------------------------------
+(rdb:7) l
+[11, 20] in /PathTo/project/app/controllers/posts_controller.rb
+   11      end
+   12    end
+   13
+   14    # GET /posts/1
+   15    # GET /posts/1.xml
+   16    def show
+   17      @post = Post.find(params[:id])
+   18
+   19      respond_to do |format|
+   20        format.html # show.html.erb
+----------------------------------------------------------------------------
+
+Y así en lo sucesivo hasta el final del archivo actual. Cuando se haya alcanzado el fin del archivo, el comando +list+ empezará desde el principio del archivo y continuará de nuevo hasta el final, tratando al archivo como un buffer circular.
+
+=== El Contexto
+
+Cuando empiece a depurar una aplicación, podrá ser ubicado en diferentes contextos a medida que se desplaza por las distintas partes de la pila.
+
+ruby-debug genera contenido cuando se ha alcanzado algún punto de parada o evento. El contexto tiene la inforamción sobre que se encuentra suspendido, lo que le permite al depurador inspeccionar la pila de llamadas, evaluar variables desde la perspectiva de un programa depurador, y contiene información acerca del lugar en donde se ha detenido el programa en el que se esta trabajando.
+
+En cualquier cualquier momento se puede utilizar el comando `backtrace`(o su alias `where`) para imprimir la pila de llamas de la aplicción. Esto puede ser muy útil para saber como se llegó al lugar donde se esta. Si alguna vez se ha preguntado sobre como ha llegado a algún lugar desde su código, entonces `backtrace` le proveera la respuesta.
+
+----------------------------------------------------------------------------
+(rdb:5) where
+    #0 PostsController.index
+       at line /PathTo/project/app/controllers/posts_controller.rb:6
+    #1 Kernel.send
+       at line /PathTo/project/vendor/rails/actionpack/lib/action_controller/base.rb:1175
+    #2 ActionController::Base.perform_action_without_filters
+       at line /PathTo/project/vendor/rails/actionpack/lib/action_controller/base.rb:1175
+    #3 ActionController::Filters::InstanceMethods.call_filters(chain#ActionController::Fil...,...)
+       at line /PathTo/project/vendor/rails/actionpack/lib/action_controller/filters.rb:617
+...
+----------------------------------------------------------------------------
+
+Es posible desplazarse a cualquier lugar en la pila (lo cual implica cambio de contexto) usando el comando `frame _n_`, en donde _n_  indica el número del frame.
+
+----------------------------------------------------------------------------
+(rdb:5) frame 2
+#2 ActionController::Base.perform_action_without_filters
+       at line /PathTo/project/vendor/rails/actionpack/lib/action_controller/base.rb:1175
+----------------------------------------------------------------------------
+
+Las variables disponibles son las mismas que encontraría al ejecutar el código linea por linea. Despúes de todo, eso es lo que hace un depurador.
+
+Para moverse hacia arriba o abajo en la pila de instrucciones: Puede utilizar `up [n]` (`u` - método abreviado) para ir hacia arriba y `down [n]` para moverse hacia abajo, con la finalidad de cambiar el contexto un número _n_ de frames hacia arriba o abajo respectivamente. _n_ por defecto a uno. Up en este caso desplaza hacua número superior en los frames de la pila de llamadas, y down desplaza hacia abajo en los frames de la pila de llamadas.
+
+=== Hilos
+
+El depurador puede lista, detener, continuar y cambiar entre los diferentes hilos que se encuentra en ejecución empleando el comando `thread` (o su versión abreviada `th`). Este comando tiene un montón de opciones:
+
+* `thread` shows the current thread.
+* `thread list` is used to list all threads and their statuses. The plus + character and the number indicates the current thread of execution.
+* `thread stop _n_` stop thread _n_.
+* `thread resume _n_` resumes thread _n_.
+* `thread switch _n_` switches the current thread context to _n_.
+
+Este comando es muy útil, especialmente cuando se necesita depurar hilos concurrentes y para comprobar que no existen condiciones de carrera en el código.
+
+=== Inspeccionando Variables
+
+Cualquier expresión puede ser evaluada en el contexto actual. Para evaluar una expresión, solo escribala!!
+
+Este ejemplo muestra como se puede mostrar las variables de instancia (instance_variables) definidas dentro del contexto actual:
+
+----------------------------------------------------------------------------
+@posts = Post.find(:all)
+(rdb:11) instance_variables
+["@_response", "@action_name", "@url", "@_session", "@_cookies", "@performed_render", "@_flash", "@template", "@_params", "@before_filter_chain_aborted", "@request_origin", "@_headers", "@performed_redirect", "@_request"]
+----------------------------------------------------------------------------
+
+Como ya se debe haber dado cuenta, se muestran todas las variables que son accedidas desde un controlador. Esta lista es actualizada dinámicamente a medida que ejecuta código. Por ejemplo, ejecute la siguiente linea usando `next` (Aprenderá más sobre este comando en las secciones siguientes de la guía).
+
+----------------------------------------------------------------------------
+(rdb:11) next
+Processing PostsController#index (for 127.0.0.1 at 2008-09-04 19:51:34) [GET]
+  Session ID: BAh7BiIKZmxhc2hJQzonQWN0aW9uQ29udHJvbGxlcjo6Rmxhc2g6OkZsYXNoSGFzaHsABjoKQHVzZWR7AA==--b16e91b992453a8cc201694d660147bba8b0fd0e
+  Parameters: {"action"=>"index", "controller"=>"posts"}
+/PathToProject/posts_controller.rb:8
+respond_to do |format|
+-------------------------------------------------------------------------------
+
+Preguntemos de nuevo por los valores de las varibles de instancia:
+
+----------------------------------------------------------------------------
+(rdb:11) instance_variables.include? "@posts"
+true
+----------------------------------------------------------------------------
+
+Ahora se incluye +@posts+ en las varibales de instancia, debido a que la linea que lo define fué ejecutada.
+
+[NOTA]
+Támbien puede entrar al modo *irb* con el comando `irb` (¡por supuesto!). De esta forma se iniciará una sesión rib dentro del contexto en el cual fue invocada. Pero cuidado: Esta funcionalidad es experimental.
+
+El método `var` es la forma más conveniente de mostrar las variables y sus valores:
+
+----------------------------------------------------------------------------
+var
+(rdb:1) v[ar] const <object>            show constants of object
+(rdb:1) v[ar] g[lobal]                  show global variables
+(rdb:1) v[ar] i[nstance] <object>       show instance variables of object
+(rdb:1) v[ar] l[ocal]                   show local variables
+----------------------------------------------------------------------------
+
+Esta es una forma fenómenal de onspeccionar los valores de las variables en el contexto actual. Por ejemplo:
+
+----------------------------------------------------------------------------
+(rdb:9) var local
+  __dbg_verbose_save => false
+----------------------------------------------------------------------------
+
+Támbien puede inspeccionar el método de un objeto de esta manera:
+
+----------------------------------------------------------------------------
+(rdb:9) var instance Post.new
+@attributes = {"updated_at"=>nil, "body"=>nil, "title"=>nil, "published"=>nil, "created_at"...
+@attributes_cache = {}
+@new_record = true
+----------------------------------------------------------------------------
+
+[NOTA]
+El comando `p` (print) y `pp` (pretty print) pueden ser usador para evaluar expresiones Ruby y mostrar el valor de las variables en la consola.
+
+Támbien puede usar `display` para iniciar el seguimietno de variables. Esta es una buena forma de hacer seguimietno a los variables mientras avanza la ejecución.
+
+----------------------------------------------------------------------------
+(rdb:1) display @recent_comments
+1: @recent_comments =
+----------------------------------------------------------------------------
+
+Las variabes dentro de la lista se mostrarán con sus valores mientras se mueva en la pila. Para dejar de mostrar una variable use `undisplay _n_` donde _n_  indica el número de la variable (1 en el último ejemplo).
+
+=== Paso a Paso
+
+Ahora debe saber en donde se encuentra en la traza que se esta corriendo, así como podor mostrar las variables disponibles. Pero continuemos y sigamos la ejecución de la aplicación.
+
+Use `step` (abbreviado `s`) para continuar la ejecucón del programa hasta la siguiente punto de parada lógico y regrese el contro a ruby-debug.
+
+[NOTA]
+Támbien se puede utilizar `step+ _n_` y `step- _n_` para avanzar o retroceser _n_ pasos respectivamente.
+
+You may also use `next` which is similar to step, but function or method calls that appear within the line of code are executed without stopping. As with step, you may use plus sign to move _n_ steps.
+
+La diferencia entre `next` y `step` es que `step` se tiene en la siguiente linea del código ejecutado, haciendo un solo paso, mientras que `next` avanza a la siguiente linea sin desender hacia los métodos.
+
+Por ejemplo, consideré este bloque de código con la linea +debugger+ incluida:
+
+[source, ruby]
+----------------------------------------------------------------------------
+class Author < ActiveRecord::Base
+  has_one :editorial
+  has_many :comments
+
+  def find_recent_comments(limit = 10)
+    debugger
+    @recent_comments ||= comments.find(
+      :all,
+      :conditions => ["created_at > ?", 1.week.ago],
+      :limit => limit
+    )
+  end
+end
+----------------------------------------------------------------------------
+
+[NOTA]
+Puede user ruby-debug mientras esta ejecutando script/console. Solo debe recordar que se debe incluir `require "ruby-debug"` antes de la llamanda al método `debugger`.
+
+----------------------------------------------------------------------------
+/PathTo/project $ script/console
+Loading development environment (Rails 2.1.0)
+>> require "ruby-debug"
+=> []
+>> author = Author.first
+=> #<Author id: 1, first_name: "Bob", last_name: "Smith", created_at: "2008-07-31 12:46:10", updated_at: "2008-07-31 12:46:10">
+>> author.find_recent_comments
+/PathTo/project/app/models/author.rb:11
+)
+----------------------------------------------------------------------------
+
+Con el código detenido, podemos echar un vistaso:
+
+----------------------------------------------------------------------------
+(rdb:1) list
+[6, 15] in /PathTo/project/app/models/author.rb
+   6      debugger
+   7      @recent_comments ||= comments.find(
+   8        :all,
+   9        :conditions => ["created_at > ?", 1.week.ago],
+   10        :limit => limit
+=> 11      )
+   12    end
+   13  end
+----------------------------------------------------------------------------
+
+Esta al final de la linea, pero... se ejecutó esta linea? Puede inspeccionar las variables de instancia.
+
+----------------------------------------------------------------------------
+(rdb:1) var instance
+@attributes = {"updated_at"=>"2008-07-31 12:46:10", "id"=>"1", "first_name"=>"Bob", "las...
+@attributes_cache = {}
+----------------------------------------------------------------------------
+
++@recent_comments+ no ha sido definido todavía, así que es claro que esta linea no ha sido executada. Use el comando +next+ para avanzar en el código:
+
+----------------------------------------------------------------------------
+(rdb:1) next
+/PathTo/project/app/models/author.rb:12
+@recent_comments
+(rdb:1) var instance
+@attributes = {"updated_at"=>"2008-07-31 12:46:10", "id"=>"1", "first_name"=>"Bob", "las...
+@attributes_cache = {}
+@comments = []
+@recent_comments = []
+----------------------------------------------------------------------------
+
+Ahora puede ver que la relación +@comments+ fué cargada y que @recent_comments fue definida debido a que la linea fué ejecutada.
+
+Si quiere ir más profundo en la pila de llamadas, puede moverese una "paso" a la vez usando `steps`, a lo largo de los métos que se llaman y dentro del código Rails. Esta es una de las mejores maneras de encontrar bugs en su código, o quizas en Ruby on Rails.
+
+=== Puntos de Interrupción
+
+Un punto de interrupción hace que su aplicación se detenga  cunado se haya alcanzado cierto punto. La consola del depurador es invocada en esa linea.
+
+Se pueden agregar puntos de interrupción de manera dinámica con el comando `break` (o solo `b`). Hay 3 posibles formas de agregar puntos de interrupción de manera manual:
+
+* `break line`: Establece el punto de interrupción en la linea _line_, en el código fuente áctual.
+* `break file:line [if expression]`: Establece el punto de interrupción en el número de linea (_line_) dentro del archivo _file_. Sí se indica una expresión (_expression_), la misma debe ser evaluada como verdadera (_true_) para iniciar el depurador.
+* `break class(.|\#)method [if expression]`: Establece un punto de interrupción en un método (_method_) (. y \# para clases y métodos de instancia respectivamente) Definido en la classe (_class_). La expresión (_expression_) trabaja de la misma forma archivo:linea (file:line).
+
+----------------------------------------------------------------------------
+(rdb:5) break 10
+Breakpoint 1 file /PathTo/project/vendor/rails/actionpack/lib/action_controller/filters.rb, line 10
+----------------------------------------------------------------------------
+
+Use `info breakpoints _n_` o `info break _n_` para listar los puntos de interrupción. Si indica el número, se listará ese punto de interrupción. De otra manera se listarán todos los puntos de interrupción.
+
+----------------------------------------------------------------------------
+(rdb:5) info breakpoints
+Num Enb What
+  1 y   at filters.rb:10
+----------------------------------------------------------------------------
+
+Para eliminar los puntos de interrupción: emplee  el comando `delete _n_` para eliminar el punto de interrupción número _n_. Si no se h especificado ningún número, elmina todos los puntos de interrupción que se encuentran activos.
+
+----------------------------------------------------------------------------
+(rdb:5) delete 1
+(rdb:5) info breakpoints
+No breakpoints.
+----------------------------------------------------------------------------
+
+Puede habilitar o deshabilitar los puntos de interrupción:
+
+* `enable breakpoints`: Habilita una lista o todos los puntos de restauración (si no se especifica ninguna lista), para detener el programa. Este es el estado por defecto en el que se crea un punto de restauración.
+* `disable breakpoints`: Los puntos de restauración no tendrán efecto en el programa.
+
+=== Capturando Excepciones
+
+El comando `catch exception-name` (o solo `cat exception-name`) puede ser usado para interceptar una excepción del tipo _nombre-de-excepción_ cuando de otra manera, hubiera un manejador para el. 
+
+Para listar todos los puntos de captura emplee `catch`.
+
+=== Retomando la Ejecución 
+
+Hay 2 formas de retomar la ejecución de una aplicación que haya sido detenida previamente por el depurador:
+
+* `continue` [line-specification] (o `c`): Retoma la ejecución del programa, en la dirección donde el script se detuvo por última vez; cualquier punto de interrupción definido en esa dirección será omitido. El argumento opcional especificación-de-linea (line-specification) le permite especificar un número de linea para definir un punto de interrupción de una sola ejecución, que será eliminado una vez se haya llegado al mismo.
+* `finish` [frame-number] (o `fin`): Ejecute hasta que la pila de instrucciones seleccionada haya llegado a su final. Si no se ha indicado el número del frame, la aplicación se jecutara hasta que se retorne al frame actualmente seleccionado. El frame actualmente seleccionado empieza desde el frame más reciente o desde 0, si no se ha realizado ningún posicionamiento de frame (arriba o abajo). Si se indica el número del frame, se ejecutará hasta que se regrese al número del frame especificado.
+
+=== Edición
+
+Dos comandos permiten abrir archivos desde el depurador a un editor:
+
+* `edit [file:line]`: Edita el archivo (_file_) usando el editor especificado por la variable de ambiente EDITOR Se puede especificar el número de linea.
+* `tmate _n_` (abbreviated `tm`): open the current file in TextMate. It uses n-th frame if _n_ is specified.
+
+=== Salir del depurador
+
+Dos comandos le permiten abrir archivos desde el depurador a un editor:
+El comando `quit` (abbreviated `q`), o su alias `exit`.
+
+Un simple _quit_ intenta finalizar todos los hilos en ejecución. Por lo tanto, su servidor se detendrá y tendrá que empezar de nuevo.
+
+=== Configuración 
+
+Hay algunos parametros que pueden ser configurados en ruby-debug para facilitar la depuración de su código. Aquí hay algunas opciones disponibles:
+
+* `set reload`: Carga de nuevo el código fuente toda vez que haya sido cambiado.
+* `set autolist`: Ejecuta el comando `list` en cada punto de interrupción.
+* `set listsize _n_`: Establece el número de lineas de código fuente a listar, por defecto a _n_.
+* `set forcestep`: Asegura que los comandos `next` y `step` siempre se moveran a una nueva linea.
+
+You can see the full list by using `help set`. Use `help set _subcommand_` to learn about a particular +set+ command.
+
+[NOTA]
+Puede incluir cualquier cantidad de estas lineas de configuración dentro del archivo `.rdebugrc`, en su HOME directori. ruby-debug leerá este archivo cada vez que es cargado y se configura basandose en lo encontrado.
+
+Aquí hay un buen comienzo para un archivo `.rdebugrc`:
+
+[source, log]
+----------------------------------------------------------------------------
+set autolist
+set forcestep
+set listsize 25
+----------------------------------------------------------------------------
+
+== Referencias 
+
+* link:http://www.datanoise.com/ruby-debug[ruby-debug Homepage]
+* link:http://www.sitepoint.com/article/debug-rails-app-ruby-debug/[Article: Debugging a Rails application with ruby-debug]
+* link:http://brian.maybeyoureinsane.net/blog/2007/05/07/ruby-debug-basics-screencast/[ruby-debug Basics screencast]
+* link:http://railscasts.com/episodes/54-debugging-with-ruby-debug[Ryan Bate's ruby-debug screencast]
+* link:http://railscasts.com/episodes/24-the-stack-trace[Ryan Bate's stack trace screencast]
+* link:http://railscasts.com/episodes/56-the-logger[Ryan Bate's logger screencast]
+* link:http://bashdb.sourceforge.net/ruby-debug.html[Debugging with ruby-debug]
+* link:http://cheat.errtheblog.com/s/rdebug/[ruby-debug cheat sheet]
+* link:http://wiki.rubyonrails.org/rails/pages/HowtoConfigureLogging[Ruby on Rails Wiki: How to Configure Logging]
+
+== Bitácora de Cambios  ==
+
+http://rails.lighthouseapp.com/projects/16213-rails-guides/tickets/5[Lighthouse ticket]
+
+* October 19, 2008: Copy editing pass by link:../authors.html#mgunderloy[Mike Gunderloy]
+* September 16, 2008: initial version by link:../authors.html#miloops[Emilio Tagua]

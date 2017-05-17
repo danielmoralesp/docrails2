@@ -1,0 +1,641 @@
+<!-- -*- coding: utf-8; -*- -->
+
+Guía de asociaciones de Active Record.
+======================================
+
+Esta guía abarca las características de las asociaciones de Active Record. A partir de esta guía ud. podrá:
+
+* Declarar asociaciones entre modelos Active Record
+* Comprender los diferentes tipos de asociaciones de Active Record
+* Usar los métodos agregados a sus modelos por la creación de las asociaciones
+
+== ¿Por qué Asociaciones ?
+
+¿Por qué necesitamos asociaciones entre los modelos? Porque hacen más simples y fáciles las operaciones comunes en su código. Por ejemplo, considere una aplicación Rails que incluye un modelo para los clientes y un modelo para los pedidos. Cada cliente puede tener muchos pedidos. Sin las asociaciones, las declaraciones del modelo se verían así:
+
+[source, ruby]
+-------------------------------------------------------
+class Customer < ActiveRecord::Base
+end
+
+class Order < ActiveRecord::Base
+end
+-------------------------------------------------------
+
+Ahora supongamos que queremos agregar un nuevo pedido para un cliente existente. Deberíamos tener que hacer algo como esto:
+
+[source, ruby]
+-------------------------------------------------------
+@order = Order.create(:order_date => Time.now, :customer_id => @customer.id)
+-------------------------------------------------------
+
+O considere eliminar un cliente, y asegurarse que todos sus pedidos sean eliminados también.
+
+[source, ruby]
+-------------------------------------------------------
+@orders = Order.find_by_customer_id(@customer.id)
+@orders.each do |order|
+  order.destroy
+end
+@customer.destroy
+-------------------------------------------------------
+
+Con las asociaciones de Active Record, podemos hacer esto - y otras - cosas más fácil declarativamente diciéndole a Rails que hay una conexión entre los dos modelos. Este es el código con asociaciones para los clientes y los pedidos.
+
+[source, ruby]
+-------------------------------------------------------
+class Customer < ActiveRecord::Base
+  has_many :orders
+end
+
+class Order < ActiveRecord::Base
+  belongs_to :customer
+end
+-------------------------------------------------------
+
+Con este cambio, crear un nuevo pedido para un cliente es más fácil:
+
+[source, ruby]
+-------------------------------------------------------
+@order = @customer.orders.create(:order_date => Time.now)
+-------------------------------------------------------
+
+Eliminar un cliente y todos sus pedidos es _mucho_ más fácil:
+
+[source, ruby]
+-------------------------------------------------------
+@customer.destroy
+-------------------------------------------------------
+
+Para aprender más acerca de los diferentes tipos de asociaciones, lea la siguiente sección de esta Guía. Lo que sigue son algunos consejos y trucos para trabajar con asociaciones, y luego una referencia completa de los métodos y opciones para las asociaciones en Rails.
+
+== Los tipos de las asociaciones
+
+En Rails, una _asociación_ es una conexión entre dos modelos Active Record. Las asociaciones están implementadas usando llamadas de macro-estilo, entonces ud. puede agregar características declarativamente a sus modelos. Por ejemplo, declarando que un modelo +pertenece a+ (n. del t. belongs_to) otro, ud. le ordena a Rails que mantenga la información Clave Primaria-Clave Foránea entre las instancias de los dos modelos, y obtendrá un número de métodos de utilidad agregados a su modelo. Rails soporta seis tipos de asociaciones:
+
+* +belongs_to+
+* +has_one+
+* +has_many+
+* +has_many :through+
+* +has_one :through+
+* +has_and_belongs_to_many+
+
+En el resto de esta guía, ud. aprenderá como declarar y usar las diferentes formas de asociaciones. Pero primero, una introducción rápida a las situaciones dónde es apropiado cada tipo de asociacion.
+
+=== La asociación +belongs_to+ (n. del t. Pertenece a)
+
+La asociación +belongs_to+ establece una conexión uno-a-uno con otro modelo, tal que cada instancia del modelo dónde se hace la declaración "pertence a" una instancia del otro modelo. Por ejmplo, si su aplicación incluye clientes y pedidos, y cada pedido es asignado a exactamente un cliente, debería declarar el modelo de pedido así:
+
+[source, ruby]
+-------------------------------------------------------
+class Order < ActiveRecord::Base
+  belongs_to :customer
+end
+-------------------------------------------------------
+
+image:images/belongs_to.png[belongs_to Association Diagram]
+
+=== La asociación +has_one+ (n. del .t Tiene un)
+
+La asociación +has_one+ también establece una conexión uno-a-uno con otro modelo, pero con semánticas (y consecuencias) un tanto diferentes. Esta asociación indica que cada instancia de un modelo contiene o posee una instancia de otro modelo. Por ejemplo, si cada proveedor en su aplicación tiene una cuenta, debería declarar el modelo de proveedor así
+
+[source, ruby]
+-------------------------------------------------------
+class Supplier < ActiveRecord::Base
+  has_one :account
+end
+-------------------------------------------------------
+
+image:images/has_one.png[has_one Association Diagram]
+
+=== La asociación +has_many+ (n. del t. Tiene muchos)
+
+Una asociación +has_many+ establece una conexión uno-a-muchos con el otro modelo. Econtrará a menudo esta asociación del "otro lado" de una asociación +belogns_to+. Esta asociación indica que cada instancia del modelo tiene cero o más instancias del otro modelo. Por ejemplo, en una aplicación que tiene clientes y pedidos, el modelo de cliente podría declararse así:
+
+[source, ruby]
+-------------------------------------------------------
+class Customer < ActiveRecord::Base
+  has_many :orders
+end
+-------------------------------------------------------
+
+NOTA: El nombre del otro modelo se pluraliza cuando declaramos una asociación +has_many+.
+
+image:images/has_many.png[has_many Association Diagram]
+
+=== La asociación +has_many :through+ (n. del t. tiene muchos a traves de)
+
+Una asociación +has_many :through+ se usada frecuentemente para establecer una coexión de muchos-amuchos con otro modelo. Esta asociación indica que un el modelo dónde se hace la declaración puede coincidir con cero o más instancias del otro modelo _a traves_ de un tercer modelo. Por ejemplo, considere una práctica médica dónde los pacientes tienen turnos para ver al médico. La asociación relevante podría ser así:
+
+[source, ruby]
+-------------------------------------------------------
+class Physician < ActiveRecord::Base
+  has_many :appointments
+  has_many :patients, :through => :appointments
+end
+
+class Appointment < ActiveRecord::Base
+  belongs_to :physician
+  belongs_to :patient
+end
+
+class Patient < ActiveRecord::Base
+  has_many :appointments
+  has_many :physicians, :through => :appointments
+end
+-------------------------------------------------------
+
+image:images/has_many_through.png[has_many :through Association Diagram]
+
+La asociación +has_many :through+ es también muy útil para hacer "atajos" através de asociaciones :+has_many+ anidadas. Por ejemplo, si un documento tiene muchas secciones, y una sección tiene muchos párrafos, ud. quizás desee obtener una colección simple de todos los párrafos en el documento. Podría realizar eso de esta forma:
+
+[source, ruby]
+-------------------------------------------------------
+class Document < ActiveRecord::Base
+  has_many :sections
+  has_many :paragraphs, :through => :sections
+end
+
+class Section < ActiveRecord::Base
+  belongs_to :document
+  has_many :paragraphs
+end
+
+class Paragraph < ActiveRecord::Base
+  belongs_to :section
+end
+-------------------------------------------------------
+
+=== La Asociación +has_one :through+
+
+Una asociación +has_one :through+ establece una conexión uno a uno con otro modelo. Esta asociación indica que el modelo dónde se hace la declaración puede coincidir con una instancia de otro modelo procediendo _através_ (n. del t. through) de un tercer modelo. Por ejemplo, si cada proveedor tiene una cuenta, y cada cuenta está asociada con un histórico de cuenta, entonces el modelo proveedor podría ser así:
+
+[source, ruby]
+-------------------------------------------------------
+class Supplier < ActiveRecord::Base
+  has_one :account
+  has_one :account_history, :through => :account
+end
+
+class Account < ActiveRecord::Base
+  belongs_to :supplier
+  has_one :account_history
+end
+
+class AccountHistory < ActiveRecord::Base
+  belongs_to :account
+end
+-------------------------------------------------------
+
+image:images/has_one_through.png[has_one :through Association Diagram]
+
+=== La Asociación +has_and_belongs_to_many+
+
+Una asociación +has_and_belongs_to_many+ crea una conexión directa de muchos-a-muchos con otro modelo, sin otro modelo interviniente. Por ejemplo, si su aplicación include montajes y partes, con cada montaje que tiene muchas partes y cada parte aparece en varios montajes, ud. podría delcarar los modelos así:
+
+[source, ruby]
+-------------------------------------------------------
+class Assembly < ActiveRecord::Base
+  has_and_belongs_to_many :parts
+end
+
+class Part < ActiveRecord::Base
+  has_and_belongs_to_many :assemblies
+end
+-------------------------------------------------------
+
+image:images/habtm.png[has_and_belongs_to_many Association Diagram]
+
+=== Eligiendo entre +belongs_to+ y +has_one+
+
+Si ud. tienen hacer una relación 1-1 entre dos modelos, va a necesitar agregar +belongs_to+ a uno, y +has_one+ al otro modelo. ¿Cómo sabe cual es cual?
+
+La diferencia está en dónde va a poner la clave foránea (esta va en la tabla de la clase dónde declaró la asociación +belongs_to+), pero el significado de los datos debería darle una idea al respecto también. La relación +has_one+ dice que uno de algo es suyo - esto es, que algo apunta hacia aquí. Por ejemplo, tiene más sentido decir que un proveedor posee una cuenta más que decir que una cuenta posee un proveedor. Esto sugiere que las relaciones correctas son así:
+
+[source, ruby]
+-------------------------------------------------------
+class Supplier < ActiveRecord::Base
+  has_one :account
+end
+
+class Account < ActiveRecord::Base
+  belongs_to :supplier
+end
+-------------------------------------------------------
+
+The corresponding migration might look like this:
+
+[source, ruby]
+-------------------------------------------------------
+class CreateSuppliers < ActiveRecord::Migration
+  def self.up
+    create_table :suppliers do |t|
+      t.string  :name
+      t.timestamps
+    end
+
+    create_table :accounts do |t|
+      t.integer :supplier_id
+      t.string  :account_number
+      t.timestamps
+    end
+  end
+
+  def self.down
+    drop_table :accounts
+    drop_table :suppliers
+  end
+end
+-------------------------------------------------------
+
+NOTA: El uso de +t.integer :supplier_id+ crea la clave foránea de una forma obvia e implícita. En las versiones actuales de Rails, ud. puede en cambio abstraerse de este detalle de implementación mediante el uso de +t.references :supplier+
+
+=== Eligiendo entre +has_many :through+ y +has_and_belongs_to_many+
+
+Rails ofrece dos formas diferentes para declarar una relación de muchos-a-muchos entre dos modelos. La forma simple es usar +has_and_belongs_to_many+, la cual le permite hacer la asociación directamente:
+
+[source, ruby]
+-------------------------------------------------------
+class Assembly < ActiveRecord::Base
+  has_and_belongs_to_many :parts
+end
+
+class Part < ActiveRecord::Base
+  has_and_belongs_to_many :assemblies
+end
+-------------------------------------------------------
+
+La segunda opción para declarar una relación de muchos-a-muchos es usar +has_many :through+. Esto hace la asociación indirectamente, através de un modelo de unión:
+
+[source, ruby]
+-------------------------------------------------------
+class Assembly < ActiveRecord::Base
+  has_many :manifests
+  has_many :parts, :through => :manifests
+end
+
+class Manifest < ActiveRecord::Base
+  belongs_to :assembly
+  belongs_to :part
+end
+
+class Part < ActiveRecord::Base
+  has_many :manifests
+  has_many :assemblies, :through => :manifests
+end
+-------------------------------------------------------
+
+La regla general más simple es que debería establecer una relación +has_many :through+ si necesita trabajar como una entidad independiente con el modelo de la relación. Si no necesita hacer nada con el modelo de la relación, quizás se más simple establecer una relación +has_and_belongs_to_many+ (aunque va a necesitar recordar crear la tabla de unión).
+
+Debería usar +has_many :through+ si va a necesitar validaciones, callbacks, o atributos extras en el modelo de unión.
+
+=== Asociaciones polimórficas
+
+Un vuelta de rosca un poco más avanzada en las asociaciones es la _asociación polimórfica_. Con las asociaciones polimórficas, un modelo puede pertenecer (n. del t. belongs to) a más de un modelo, o asociación simple. Por ejemplo, quizás tenga un modelo "picture" que pertenece tanto a los modelos "employee" como a "product". Aquí está como podría ser declarado:
+
+[source, ruby]
+-------------------------------------------------------
+class Picture < ActiveRecord::Base
+  belongs_to :imageable, :polymorphic => true
+end
+
+class Employee < ActiveRecord::Base
+  has_many :pictures, :as => :imageable
+end
+
+class Product < ActiveRecord::Base
+  has_many :pictures, :as => :imageable
+end
+-------------------------------------------------------
+
+Podría pensar una declaración polimórfica +belongs_to+ como una interface que cualquier otro modelo puede usar. Desde una instancia del modelo +Employee+, puede recuperar una colección de pictures: +@employee.pictures+. De forma similar, puede obtener +@product.pictures+. Si tiene una instancia del modelo +Picture+, puede obtener su padre via  +@picture.imageable+. Para hacer funcionar esto, necesita declarar una columna de clave foránea  y una columna de tipo en el modelo que declara la interface porlimórfica:
+
+[source, ruby]
+-------------------------------------------------------
+class CreatePictures < ActiveRecord::Migration
+  def self.up
+    create_table :pictures do |t|
+      t.string  :name
+      t.integer :imageable_id
+      t.string  :imageable_type
+      t.timestamps
+    end
+  end
+
+  def self.down
+    drop_table :pictures
+  end
+end
+-------------------------------------------------------
+
+Esta migración se podría simplificar usando +t.references+:
+
+[source, ruby]
+-------------------------------------------------------
+class CreatePictures < ActiveRecord::Migration
+  def self.up
+    create_table :pictures do |t|
+      t.string  :name
+      t.references :imageable, :polymorphic => true
+      t.timestamps
+    end
+  end
+
+  def self.down
+    drop_table :pictures
+  end
+end
+-------------------------------------------------------
+
+image:images/polymorphic.png[Polymorphic Association Diagram]
+
+=== Unión a sí mismo
+
+En un diseño de modelo de datos, a veces encontrará un modelo que debe tener una relación a sí mismo. Por ejemplo, quizás quiera almacenar todos los empleados en un modelo simple de base de datos, pero que se capáz de seguir el rastro realciones tales como gerente y sus subordinados. Esta situación puede ser modelada con una asociación de unión-a-sí-mismo:
+
+[source, ruby]
+-------------------------------------------------------
+class Employee < ActiveRecord::Base
+  has_many :subordinates, :class_name => "User", :foreign_key => "manager_id"
+  belongs_to :manager, :class_name => "User"
+end
+-------------------------------------------------------
+
+Con esta configuración, ud. pude obtener +@employee.subordinates+ y +@employee.managers+.
+
+=== Consejos, Trucos, y Advertencias
+
+Aquí hay algunas cosas que debería saber para hacer un uso eficiente de las asociaciones de Active Record en sus aplicaciones Rails:
+
+* Control de caching
+* Evitar las colisiones de nombres
+* Actualizar el esquema
+* Control del ámbito de la asociación
+
+=== Control de cache
+
+Todos los métodos de asociaciones están construidos en base al cache que mantiene el resultado de la mayoría de las consultas disponibles para otras operaciones. El cache sin embargo es compartido entre los métodos. Por ejemplo:
+
+[source, ruby]
+-------------------------------------------------------
+customer.orders                 # retrieves orders from the database
+customer.orders.size            # uses the cached copy of orders
+customer.orders.empty?          # uses the cached copy of orders
+-------------------------------------------------------
+
+¿Pero que pasa si quiere recargar el cache, por que los datos quizás han sido cambiados por alguna otra parte de la aplicación?  Sólo llame a la asociación con +true+:
+
+[source, ruby]
+-------------------------------------------------------
+customer.orders                 # retrieves orders from the database
+customer.orders.size            # uses the cached copy of orders
+customer.orders(true).empty?    # discards the cached copy of orders and goes back to the database
+-------------------------------------------------------
+
+=== Evitando las colisiones de nombres
+
+Ud. no es libre de elegir cualquier nombre para sus asociaciones. Por que la creación de una asociación agrega un método con el nombre del modelo, es una mala idea darle a una asociación un nombre que ya es usado para un método de instancia de +ActiveRecord::Base+. El método de la asociación sobreescribiría  el método base y rompería las cosas. Por ejemplo, +attributes+ o +connection+ son malos candidatos para nombres de asociaciones.
+
+=== Actualizando el Esquema
+
+Las asociaciones son extramadamente útiles, pero no son mágicas. Ud. es el responsable de mantener el esquema de la base de datos para que coincida con sus asociaciones. En la práctica esto quiere decir dos cosas. Primero, necesita crear las foráneas correspondientes:
+
+[source, ruby]
+-------------------------------------------------------
+class Order < ActiveRecord::Base
+  belongs_to :customer
+end
+-------------------------------------------------------
+
+Esta declaración necesita ser respaldada por la propia declaración de la clave foránear en la tabla orders:
+
+[source, ruby]
+-------------------------------------------------------
+class CreateOrders < ActiveRecord::Migration
+  def self.up
+    create_table :orders do |t|
+      t.order_date   :datetime
+      t.order_number :string
+      t.customer_id  :integer
+    end
+  end
+
+  def self.down
+    drop_table :orders
+  end
+end
+-------------------------------------------------------
+
+Si ud. crea una asocicación un tiempo después de construir el modelo, necesita recordar crear una migración +add_column+ para porveer la clave foránea necesitada.
+
+Segundo, si crea una asocicación +has_and_belongs_to_many+, necesita crear explicitamente la tabal de unión. A menos que la tabla de unión esté explícitamente especificada mediante el uso de la opción +:join_table+, Active Record crea el nombre mediante el uso del orden léxico de los nombres de las clases. Entonces una unión entre los modelos customer y order va a dar como resultado el nombre de tabla por defecto "customers_orders" porque "c" precede a la "o" en el orden léxico.
+
+ADVERTENCIA: La precedencia entre los nombres de los modelos es calculada usando el operador +<+ para +String+. Esto quiere decir que si los strings tienen diferentes longitudes, y los strings son iguales cuando se comparan por su longitud más corta, el string más largo se considera con un grado de precedencia más alto que el más corto. Por ejemplo, se podría esperar que las tablas "paper_boxes" y "papers" generen un nombre de tabla de unión "papers_paper_boxes" por la longitud del nombre  "paper_boxes", pero de hecho genera un nombre de tabla de unión  "paper_boxes_papers".
+
+Cualquiera sea el nombre, debe generar manualmente la tabla de unión con una migración apropiada. Por ejemplo, considere estas asociaciones:
+
+[source, ruby]
+-------------------------------------------------------
+class Assembly < ActiveRecord::Base
+  has_and_belongs_to_many :parts
+end
+
+class Part < ActiveRecord::Base
+  has_and_belongs_to_many :assemblies
+end
+-------------------------------------------------------
+
+Necesita respaldarse con una migración para crear la tabla +assemblies_parts+. Esta tabla debe crearse sin una clave primaria.
+
+[source, ruby]
+-------------------------------------------------------
+class CreateAssemblyPartJoinTable < ActiveRecord::Migration
+  def self.up
+    create_table :assemblies_parts, :id => false do |t|
+      t.integer :assembly_id
+      t.integer :part_id
+    end
+  end
+
+  def self.down
+    drop_table :assemblies_parts
+  end
+end
+-------------------------------------------------------
+
+=== Controlando el ámbito de la asociación
+
+Por defecto, las asociaciones sólamente miran los objetos dentro del ámbito del modulo actual. Esto puede ser importante cuando declare Modelos Active Record dentro de un modulo. Por ejemplo:
+
+[source, ruby]
+-------------------------------------------------------
+module MyApplication
+  module Business
+    class Supplier < ActiveRecord::Base
+       has_one :account
+    end
+
+    class Account < ActiveRecord::Base
+       belongs_to :supplier
+    end
+  end
+end
+-------------------------------------------------------
+
+Esto va a funcionar bien, porque ambos +Supplier+ y +Account+ están definidos dentro del mismo ámbito. Pero lo que sigue no va a funcionar porque +Supplier+ y +Account+ están definidos en diferentes ámbitos:
+
+[source, ruby]
+-------------------------------------------------------
+module MyApplication
+  module Business
+    class Supplier < ActiveRecord::Base
+       has_one :account
+    end
+  end
+
+  module Billing
+    class Account < ActiveRecord::Base
+       belongs_to :supplier
+    end
+  end
+end
+-------------------------------------------------------
+
+Para asociar un modelo en un ámbito diferente, debe espicificar el nombre completo de la clase en la declaración de su asociación:
+
+[source, ruby]
+-------------------------------------------------------
+module MyApplication
+  module Business
+    class Supplier < ActiveRecord::Base
+       has_one :account, :class_name => "MyApplication::Billing::Account"
+    end
+  end
+
+  module Billing
+    class Account < ActiveRecord::Base
+       belongs_to :supplier, :class_name => "MyApplication::Business::Supplier"
+    end
+  end
+end
+-------------------------------------------------------
+
+== Referencia detallada de asociaciones
+
+Las secciones siguientes dan los detalles de cada tipo de asociación, incluyendo los métodos que agregan y las opciones que puede usar cuando declara una asociación.
+
+==== La asociación +belongs_to+
+
+La asociación +belongs_to+ crea una coincidencia uno-a-uno con otro modelo. En términos de la base de datos, esta asociación dice que la clase contiene una clave foránea. Si la otra clase contiene la clave foránea, entonces en cambio debería usar +has_one+.
+
+==== Métodos agregados por +belongs_to+
+
+Cuando declara una asociación +belongs_to+, la clase declarante automáticamente adquiere 5 métodos relacionados con la asociación.
+
+* +_association_(force_reload = false)+
+* +_association_=(associate)+
+* +_association_.nil?+
+* +build___association__(attributes = {})+
+* +create___association__(attributes = {})+
+
+En todos estos métodos, +_association_+ es reemplazado con el símbolo pasado como primer argumento a +belongs_to+. Por ejemplo, dada la declaración:
+
+[source, ruby]
+-------------------------------------------------------
+class Order < ActiveRecord::Base
+  belongs_to :customer
+end
+-------------------------------------------------------
+
+Cada instancia del modelo order va a tener estos métodos:
+
+[source, ruby]
+-------------------------------------------------------
+customer
+customer=
+customer.nil?
+build_customer
+create_customer
+-------------------------------------------------------
+
+=====  +_association_(force_reload = false)+
+
+El método  +_association_+ retorna el objeto asociado, si es que existe alguno. Si no se encuentra el objeto asociado, retorna +nil+.
+
+[source, ruby]
+-------------------------------------------------------
+@customer = @order.customer
+-------------------------------------------------------
+
+Si el objeto asociado ha sido obtenido desde la base de datos por este objeto, al versión cacheada será retornada. Para sobreescribir este comportamiento (y forzar la lectura desde la base de datos), pase +true+ como argumento de +force_reload+.
+
+===== +_association_=(associate)+
+
+El método +_association_=+ asgina a este objeto un objeto asociado. Detrás de escena, esto significa sacar la clave primaria del objeto asociado y poner este valor en la clave foránea de este objeto.
+
+[source, ruby]
+-------------------------------------------------------
+@order.customer = @customer
+-------------------------------------------------------
+
+===== +_association_.nil?+
+
+El método +_association_.nil?+ retorna true si no hay un objeto asociado.
+
+[source, ruby]
+-------------------------------------------------------
+if @order.customer.nil?
+  @msg = "No customer found for this order"
+end
+-------------------------------------------------------
+
+===== +build___association__(attributes = {})+
+
+El método +build__\_association__+ retorna un nuevo objeto del tipo asociado. Este objeto será instanciado desde los atributos pasados, y será definida la unión a este através de la clave foránea del objeto, pero el objeto asociado no se guardará aún.
+
+[source, ruby]
+-------------------------------------------------------
+@customer = @order.build_customer({:customer_number => 123, :customer_name => "John Doe"})
+-------------------------------------------------------
+
+===== +create___association__(attributes = {})+
+
+El método +build__\_association__+ retorna un nuevo objeto del tipo asociado. Este objeto será instanciado desde los atributos pasados, y será definida la unión a este através de la clave foránea del objeto. Por otro lado, el objeto asociado _será_ guardará (asumiendo que este pasó las validaciones).
+
+[source, ruby]
+-------------------------------------------------------
+@customer = @order.create_customer({:customer_number => 123, :customer_name => "John Doe"})
+-------------------------------------------------------
+
+==== Opciones para +belongs_to+
+
+En muchas situaciones, podrá usar el comportamiento por defecto de +belongs_to+ sin ninguna personalización. Pero a pesar del énfasis de Rails de la convención sobre la configuración, puede cambiar este comportamiento de diferentes maneras. Esta sección abarca la opciones que puede usar cuand crea una asociación +belongs_to+. Por ejemplo, una asociación con diferentes opciones podría ser así:
+
+[source, ruby]
+-------------------------------------------------------
+class Order < ActiveRecord::Base
+  belongs_to :customer, :counter_cache => true, :conditions => "active = 1"
+end
+-------------------------------------------------------
+
+La opción +belongs_to+ soporta las siguientes opciones:
+
+// * +:accessible+
+* +:class_name+
+* +:conditions+
+* +:counter_cache+
+* +:dependent+
+* +:foreign_key+
+* +:include+
+* +:polymorphic+
+* +:readonly+
+* +:select+
+* +:validate+
+
+// ===== +:accessible+
+//
+// The +:accessible+ option is the association version of +ActiveRecord::Base#attr_accessible+. If you set the +:accessible+ option to true, then mass // assignment is allowed for this association.
+//
+
+
+
