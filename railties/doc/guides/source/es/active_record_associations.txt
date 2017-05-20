@@ -778,3 +778,1387 @@ Existen algunas limitaciones con  :inverse_of
 No trabajan con asociaciones :through.
 No funcionan con asociaciones polimórficas.
 No trabajan con asociaciones :as
+
+===4 Referencia detallada de la asociación
+Las siguientes secciones proporcionan los detalles de cada tipo de asociación, incluidos los métodos que agregan y las opciones que puede utilizar al declarar una asociación.
+
+==4.1 Referencia de la asociación belongs_to
+La asociación belongs_to crea una coincidencia uno-a-uno con otro modelo. En términos de base de datos, esta asociación dice que esta clase contiene la clave foránea. Si la otra clase contiene la clave foránea, entonces debería usar has_one en su lugar.
+
+4.1.1 Métodos agregados por belongs_to
+
+Cuando declara una asociación belongs_to, la clase declarante obtiene automáticamente cinco métodos relacionados con la asociación:
+
+[source, ruby]
+-------------------------------------------------------
+association
+association=(associate)
+build_association(attributes = {})
+create_association(attributes = {})
+create_association!(attributes = {})
+-------------------------------------------------------
+
+En todos estos métodos, la palabra association se sustituye por el símbolo pasado como el primer argumento a belongs_to. Por ejemplo, dada la declaración:
+
+[source, ruby]
+-------------------------------------------------------
+class Book < ApplicationRecord
+  belongs_to :author
+end
+-------------------------------------------------------
+
+Cada instancia del modelo Book tendrá estos métodos:
+
+* author
+* author=
+* build_author
+* create_author
+* create_author!
+
+Al inicializar una nueva asociación has_one o belongs_to, debe utilizar el prefijo build_ para crear la asociación, en lugar del método association.build que se utilizaría para las asociaciones has_many o has_and_belongs_to_many. Para crear uno, use el prefijo create_.
+
+4.1.1.1 association
+El método de association devuelve el objeto asociado, si lo hay. Si no se encuentra ningún objeto asociado, devuelve nil.
+
+[source, ruby]
+-------------------------------------------------------
+@author = @book.author
+-------------------------------------------------------
+
+Si el objeto asociado ya se ha recuperado de la base de datos para este objeto, se devolverá la versión almacenada en caché. Para anular este comportamiento (y forzar una base de datos no leída), llame #reload en el objeto primario.
+
+[source, ruby]
+-------------------------------------------------------
+@author = @book.reload.author
+-------------------------------------------------------
+
+4.1.1.2 association=(associate)
+
+El método association= asigna un objeto asociado a este objeto. Detrás de las escenas, esto significa extraer la clave principal del objeto asociado y establecer la clave externa de este objeto en el mismo valor.
+
+@book.author = @author
+
+4.1.1.3 build_association(attributes = {})
+
+El método build_association devuelve un nuevo objeto del tipo asociado. Este objeto se instanciará a partir de los atributos pasados y se establecerá el vínculo a través de la clave externa de este objeto, pero el objeto asociado aún no se guardará.
+
+@author = @book.build_author(author_number: 123,
+                                  author_name: "John Doe")
+
+4.1.1.4 create_association(attributes = {})
+
+El método create_association devuelve un nuevo objeto del tipo asociado. Este objeto será instanciado a partir de los atributos pasados, se establecerá el enlace a través de la clave externa de este objeto y, una vez que pase todas las validaciones especificadas en el modelo asociado, se guardará el objeto asociado.
+
+@author = @book.create_author(author_number: 123,
+                                   author_name: "John Doe")
+
+4.1.1.5 create_association!(attributes = {})
+
+Hace lo mismo que create_association, pero activa ActiveRecord::RecordInvalid si el registro no es válido.
+
+4.1.2 Opciones para belongs_to
+
+Mientras que Rails utiliza valores predeterminados inteligentes que funcionarán bien en la mayoría de las situaciones, puede haber ocasiones en las que desee personalizar el comportamiento de la referencia de asociación belongs_to. Tales personalizaciones pueden realizarse fácilmente al pasar opciones y bloques de ámbito al crear la asociación. Por ejemplo, esta asociación utiliza dos opciones:
+
+class Book < ApplicationRecord
+ belongs_to :author, dependent: :destroy,
+   counter_cache: true
+end
+
+La asociación belongs_to soporta estas opciones:
+:autosave
+:class_name
+:counter_cache
+:dependent
+:foreign_key
+
+:primary_key
+:inverse_of
+:polymorphic
+:touch
+:validate
+:optional
+
+4.1.2.1: autosave
+
+Si configura la opción: autosave en true, Rails guardará todos los miembros cargados y destruirá los miembros marcados para su destrucción cada vez que guarde el objeto principal.
+
+4.1.2.2: class_name
+
+Si el nombre del otro modelo no puede derivarse del nombre de la asociación, puede utilizar la opción: class_name para proporcionar el nombre del modelo. Por ejemplo, si un libro pertenece a un autor, pero el nombre real del modelo que contiene los autores es Patrón, se establecerían las cosas de esta manera:
+
+class Book < ApplicationRecord
+  belongs_to :author, class_name: "Patron"
+end
+
+4.1.2.3: counter_cache
+
+La opción: counter_cache se puede utilizar para hacer más eficiente el hallazgo del número de objetos pertenecientes. Considere estos modelos:
+
+class Book < ApplicationRecord
+  belongs_to :author
+end
+class Author < ApplicationRecord
+  has_many :books
+end
+
+Con estas declaraciones, pedir el valor de @author.books.size requiere realizar una llamada a la base de datos para realizar una consulta COUNT (*). Para evitar esta llamada, puede agregar una caché de contador al modelo de pertenencia:
+
+class Book < ApplicationRecord
+  belongs_to :author, counter_cache: true
+end
+class Author < ApplicationRecord
+  has_many :books
+end
+
+Con esta declaración, Rails mantendrá el valor de caché actualizado y, a continuación, devolverá ese valor en respuesta al método .size.
+
+Aunque la opción: counter_cache se especifica en el modelo que incluye la declaración belongs_to, la columna real se debe agregar al modelo asociado (has_many). En el caso anterior, debería agregar una columna denominada books_count al modelo Author.
+
+Puede reemplazar el nombre de columna predeterminado especificando un nombre de columna personalizado en la declaración counter_cache en lugar de true. Por ejemplo, para usar count_of_books en lugar de books_count:
+
+class Book < ApplicationRecord
+  belongs_to :author, counter_cache: :count_of_books
+end
+class Author < ApplicationRecord
+  has_many :books
+end
+
+Sólo es necesario especificar la opción: counter_cache en el lado belongs_to de la asociación.
+
+Las columnas de Counter Cache se agregan a la lista de atributos de solo lectura de modelo de contenedor a través de attr_readonly.
+
+4.1.2.4 :dependent
+
+Controla qué sucede con los objetos asociados cuando se destruye a su propietario:
+
+:destroy hace que los objetos asociados también se destruyan.
+:delete_all hace que los objetos asociados sean eliminados directamente de la base de datos (los callbacks no se ejecutan).
+:nullify hace que las claves foráneas se establezcan en NULL (callbacks no se ejecutan).
+:restrict_with_exception provoca que se genere una excepción si hay registros asociados.
+:restrict_with_error causa que se agregue un error al propietario si hay objetos asociados.
+
+No debe especificar esta opción en una asociación belongs_to que está conectada con una asociación has_many en la otra clase. Hacerlo puede llevar a registros huérfanos en su base de datos.
+
+4.1.2.5 :foreign_key
+Por convención, Rails asume que la columna utilizada para mantener la clave foranea en este modelo es el nombre de la asociación con el sufijo _id añadido. La opción: foreign_key le permite establecer el nombre de la clave externa directamente:
+
+class Book < ApplicationRecord
+  belongs_to :author, class_name: "Patron",
+                        foreign_key: "patron_id"
+end
+
+En cualquier caso, Rails no creará columnas de clave foranea para usted. Debe definirlos explícitamente como parte de sus migraciones.
+
+4.1.2.6: primary_key
+
+Por convención, Rails asume que la columna id se utiliza para contener la clave primaria de sus tablas. La opción: primary_key le permite especificar una columna diferente.
+
+Por ejemplo, dado que tenemos una tabla de usuarios con guid como la clave principal. Si queremos una tabla separada de todos para mantener la clave externa user_id en la columna guid, entonces podemos usar primary_key para lograr esto:
+
+class User < ApplicationRecord
+  self.primary_key = 'guid' # primary key is guid and not id
+end
+
+class Todo < ApplicationRecord
+  belongs_to :user, primary_key: 'guid'
+end
+
+Cuando ejecutamos @user.todos.create entonces el registro @todo tendrá su valor user_id como el valor de guid de @user.
+
+4.1.2.7 :inverse_of
+
+La opción :inverse_of especifica el nombre de la asociación has_many o has_one que es la inversa de esta asociación. No funciona en combinación con la opcion :polymorphic.
+
+class Author < ApplicationRecord
+  has_many :books, inverse_of: :author
+end
+
+class Book < ApplicationRecord
+  belongs_to :author, inverse_of: :books
+end
+
+4.1.2.8 :polymorphic
+
+Pasar true a la opción :polymorphic indica que se trata de una asociación polimórfica. Las asociaciones polimórficas se discutieron en detalle anteriormente en esta guía.
+
+4.1.2.9 :touch
+
+Si establece la opción: touch en true, entonces la marca de tiempo updated_at o updated_on en el objeto asociado se establecerá en la hora actual siempre que se guarde o destruya este objeto:
+
+class Book < ApplicationRecord
+  belongs_to :author, touch: true
+end
+
+class Author < ApplicationRecord
+  has_many :books
+end
+
+En este caso, guardar o destruir un libro actualizará la marca de tiempo en el autor asociado. También puede especificar un atributo de marca de tiempo específico para actualizar:
+
+class Book < ApplicationRecord
+  belongs_to :author, touch: :books_updated_at
+end
+
+4.1.2.10 :validate
+
+Si establece la opción :validate en true, los objetos asociados se validarán cada vez que guarde este objeto. De forma predeterminada, esto es falso: los objetos asociados no se validarán cuando se guarde este objeto.
+
+4.1.2.11 :optional
+
+Si establece la opción :optional en true, entonces la presencia del objeto asociado no será validada. De forma predeterminada, esta opción se establece en false.
+
+4.1.3 Scope de belongs_to
+
+Puede haber ocasiones en las que desee personalizar la consulta utilizada por belongs_to. Tales personalizaciones se pueden conseguir a través de un bloque de Scope. Por ejemplo:
+
+class Book < ApplicationRecord
+  belongs_to :author, -> { where active: true },
+                        dependent: :destroy
+end
+
+Puede utilizar cualquiera de los métodos de consulta estándar dentro del bloque de Scope. A continuación se analizan las siguientes:
+
+where
+includes
+readonly
+select
+
+4.1.3.1 where
+
+El método where permite especificar las condiciones que debe cumplir el objeto asociado.
+
+class book < ApplicationRecord
+  belongs_to :author, -> { where active: true }
+end
+
+4.1.3.2 include
+
+Puede utilizar el método includes para especificar asociaciones de segundo orden que deben cargarse con impaciencia cuando se utiliza esta asociación. Por ejemplo, considere estos modelos:
+
+class LineItem < ApplicationRecord
+  belongs_to :book
+end
+
+class Book < ApplicationRecord
+  belongs_to :author
+  has_many :line_items
+end
+
+class Author < ApplicationRecord
+  has_many :books
+end
+
+Si con frecuencia recupera autores directamente de elementos de línea (@line_item.book.author), puede hacer que su código sea un poco más eficiente al incluir a los autores en la asociación de line_item a books:
+
+
+class LineItem < ApplicationRecord
+  belongs_to :book, -> { includes :author }
+end
+
+class Book < ApplicationRecord
+  belongs_to :author
+  has_many :line_items
+end
+
+class Author < ApplicationRecord
+  has_many :books
+end
+
+No hay necesidad de utilizar includes para asociaciones inmediatas, es decir, si tienes Book belongs_to: author, entonces el autor se carga con impaciencia automáticamente cuando es necesario.
+
+4.1.3.3 readonly
+
+Si utiliza readonly, el objeto asociado será de sólo lectura cuando se recupera a través de la asociación.
+
+4.1.3.4 select
+
+El método select le permite anular la cláusula SQL SELECT que se utiliza para recuperar datos sobre el objeto asociado. De forma predeterminada, Rails recupera todas las columnas.
+
+Si utiliza el método select en una asociación belongs_to, también debe establecer la opción: foreign_key para garantizar los resultados correctos.
+
+4.1.4 ¿Existen objetos asociados?
+
+¿Puede ver si existen objetos asociados usando el metodo  association.nil?:
+
+if @book.author.nil?
+  @msg = "No author found for this book"
+end
+
+4.1.5 ¿Cuándo se guardan los objetos?
+
+Asignar un objeto a una asociación belongs_to no guarda automáticamente el objeto. Tampoco guarda el objeto asociado.
+
+4.2 Referencia de la asociación has_one
+La asociación has_one crea una coincidencia uno a uno con otro modelo. En términos de base de datos, esta asociación dice que la otra clase contiene la clave externa. Si esta clase contiene la clave externa, entonces debería usar belongs_to en su lugar.
+
+4.2.1 Métodos agregados por has_one
+
+Cuando declara una asociación has_one, la clase declarante gana automáticamente cinco métodos relacionados con la asociación:
+
+association
+association=(associate)
+build_association(attributes = {})
+create_association(attributes = {})
+create_association!(attributes = {})
+
+En todos estos métodos, la asociación se sustituye por el símbolo pasado como el primer argumento a has_one. Por ejemplo, dada la declaración:
+
+class Supplier < ApplicationRecord
+  has_one :account
+end
+
+Cada instancia del modelo de proveedor tendrá estos métodos:
+
+account
+account=
+build_account
+create_account
+create_account!
+
+Al inicializar una nueva asociación has_one o belongs_to, debe utilizar el prefijo build_ para crear la asociación, en lugar del método association.build que se utilizaría para las asociaciones has_many o has_and_belongs_to_many. Para crear uno, use el prefijo create_.
+
+4.2.1.1 association
+
+El método de asociación devuelve el objeto asociado, si lo hay. Si no se encuentra ningún objeto asociado, devuelve nil.
+
+@account = @supplier.account
+
+Si el objeto asociado ya se ha recuperado de la base de datos para este objeto, se devolverá la versión almacenada en caché. Para anular este comportamiento (y forzar una base de datos leída), llame #reload en el objeto primario.
+
+@account = @supplier.reload.account
+
+4.2.1.2 association=(associate)
+
+El método association = asigna un objeto asociado a este objeto. Detrás de las escenas, esto significa extraer la clave primaria de este objeto y establecer la clave externa del objeto asociado al mismo valor.
+
+@supplier.account = @account
+
+4.2.1.3 build_association(attributes = {})
+
+El método build_association devuelve un nuevo objeto del tipo asociado. Este objeto será instanciado a partir de los atributos pasados, y el enlace a través de su clave externa se establecerá, pero el objeto asociado aún no se guardará.
+
+@account = @supplier.build_account(terms: "Net 30")
+
+4.2.1.4 create_association(attributes = {})
+
+El método create_association devuelve un nuevo objeto del tipo asociado. Este objeto se instanciará a partir de los atributos pasados, se establecerá el enlace a través de su clave externa y, una vez que se pasen todas las validaciones especificadas en el modelo asociado, se guardará el objeto asociado.
+
+@account = @supplier.create_account(terms: "Net 30")
+
+4.2.1.5 create_association!(attributes = {})
+
+Hace lo mismo que create_association, pero dispara ActiveRecord::RecordInvalid si el registro no es válido.
+
+4.2.2 Opciones para has_one
+
+Mientras que Rails utiliza valores predeterminados inteligentes que funcionarán bien en la mayoría de las situaciones, puede haber ocasiones en las que desee personalizar el comportamiento de la referencia de asociación has_one. Tales personalizaciones pueden realizarse fácilmente pasando opciones al crear la asociación. Por ejemplo, esta asociación utiliza dos opciones:
+
+class Supplier < ApplicationRecord
+  has_one :account, class_name: "Billing", dependent: :nullify
+end
+
+La asociación has_one soporta estas opciones:
+
+:as
+:autosave
+:class_name
+:dependent
+:foreign_key
+:inverse_of
+:primary_key
+:source
+:source_type
+:through
+:validate
+
+4.2.2.1 :as
+
+Establecer la opción: as indica que se trata de una asociación polimórfica. Las asociaciones polimórficas se discutieron en detalle anteriormente en esta guía.
+
+4.2.2.2 :autosave
+
+Si configura la opción: autosave en true, Rails guardará todos los miembros cargados y destruirá los miembros marcados para su destrucción cada vez que guarde el objeto principal.
+
+4.2.2.3 :class_name
+
+Si el nombre del otro modelo no puede derivarse del nombre de la asociación, puede utilizar la opción: class_name para proporcionar el nombre del modelo. Por ejemplo, si un proveedor tiene una cuenta, pero el nombre real del modelo que contiene cuentas es Facturación, debería configurar las cosas de esta manera:
+
+class Supplier < ApplicationRecord
+  has_one :account, class_name: "Billing"
+end
+
+4.2.2.4 :dependent
+
+Controla qué sucede con el objeto asociado cuando se destruye su propietario:
+
+:destroy hace que el objeto asociado también sea destruido
+:delete hace que el objeto asociado sea eliminado directamente de la base de datos (para que las devoluciones de llamada no se ejecuten)
+:nullify hace que la clave externa se establezca en NULL. Las devoluciones de llamada no se ejecutan.
+:restrict_with_exception hace que se eleve una excepción si hay un registro asociado
+:restrict_with_error provoca que se agregue un error al propietario si hay un objeto asociado
+
+Es necesario no establecer o dejar la opcion :nullify para aquellas asociaciones que tienen NULL en la base de datos con restricciones. Si no establece dependencia para destruir tales asociaciones, no podrá cambiar el objeto asociado porque la clave externa del objeto asociado inicial se establecerá en el valor NULL no permitido.
+
+4.2.2.5: foreign_key
+
+Por convención, Rails asume que la columna utilizada para mantener la clave externa en el otro modelo es el nombre de este modelo con el sufijo _id añadido. La opción: foreign_key le permite establecer el nombre de la clave externa directamente:
+
+class Supplier < ApplicationRecord
+  has_one :account, foreign_key: "supp_id"
+end
+
+En cualquier caso, Rails no creará columnas de clave externa para usted. Debe definirlos explícitamente como parte de sus migraciones.
+
+4.2.2.6 :inverse_of
+
+La opción :inverse_of especifica el nombre de la asociación belongs_to que es la inversa de esta asociación. No funciona en combinación con las opciones :through o :as.
+
+class Supplier < ApplicationRecord
+  has_one :account, inverse_of: :supplier
+end
+
+class Account < ApplicationRecord
+  belongs_to :supplier, inverse_of: :account
+end
+
+4.2.2.7: primary_key
+
+Por convención, Rails asume que la columna utilizada para mantener la clave primaria de este modelo es id. Puede sobrescribirlo y especificar explícitamente la clave principal con la opción: primary_key.
+
+4.2.2.8: source
+
+La opción: source especifica el nombre de la asociación de origen para una asociación has_one: through.
+
+4.2.2.9: source_type
+
+La opción: source_type especifica el tipo de asociación fuente para una asociación has_one: through que procede a través de una asociación polimórfica.
+
+4.2.2.10: through
+
+La opción: through especifica un modelo de combinación mediante el cual realizar la consulta. Has_one: through asociaciones se discutieron en detalle anteriormente en esta guía.
+
+4.2.2.11: validate
+
+Si establece la opción: validate en true, los objetos asociados se validarán cada vez que guarde este objeto. De forma predeterminada, esto es falso: los objetos asociados no se validarán cuando se guarde este objeto.
+
+4.2.3 Scope de has_one
+
+Puede haber ocasiones en las que desee personalizar la consulta utilizada por has_one. Tales personalizaciones se pueden conseguir a través de un bloque de scope. Por ejemplo:
+
+class Supplier < ApplicationRecord
+  has_one :account, -> { where active: true }
+end
+
+Puede utilizar cualquiera de los métodos de consulta estándar dentro del bloque de ámbito. A continuación se analizan las siguientes:
+
+where
+includes
+readonly
+select
+
+4.2.3.1 where
+
+El método where permite especificar las condiciones que debe cumplir el objeto asociado.
+
+class Supplier < ApplicationRecord
+  has_one :account, -> { where "confirmed = 1" }
+end
+
+4.2.3.2 include
+
+Puede utilizar el método includes para especificar asociaciones de segundo orden que deben cargarse con impaciencia cuando se utiliza esta asociación. Por ejemplo, considere estos modelos:
+
+class Supplier < ApplicationRecord
+  has_one :account
+end
+
+class Account < ApplicationRecord
+  belongs_to :supplier
+  belongs_to :representative
+end
+
+class Representative < ApplicationRecord
+  has_many :accounts
+end
+
+Si obtiene con frecuencia representantes directamente de los proveedores (@supplier.account.representative), puede hacer que su código sea un poco más eficiente al incluir representantes en la asociación de proveedores a cuentas:
+
+class Supplier < ApplicationRecord
+  has_one :account, -> { includes :representative }
+end
+
+class Account < ApplicationRecord
+  belongs_to :supplier
+  belongs_to :representative
+end
+
+class Representative < ApplicationRecord
+  has_many :accounts
+end
+
+4.2.3.3 readonly
+
+Si utiliza el método readonly, el objeto asociado será de sólo lectura cuando se recupera a través de la asociación.
+
+4.2.3.4 select
+
+El método select le permite anular la cláusula SQL SELECT que se utiliza para recuperar datos sobre el objeto asociado. De forma predeterminada, Rails recupera todas las columnas.
+
+4.2.4 ¿Existen objetos asociados?
+
+¿Puede ver si existen objetos asociados usando la association.nil? método:
+
+if @supplier.account.nil?
+  @msg = "No account found for this supplier"
+end
+
+4.2.5 ¿Cuándo se guardan los objetos?
+
+Cuando asigna un objeto a una asociación has_one, ese objeto se guarda automáticamente (para actualizar su clave externa). Además, cualquier objeto que se está reemplazando también se guarda automáticamente, porque su clave externa también cambiará.
+
+Si cualquiera de estas salvas falla debido a errores de validación, la instrucción de asignación devuelve false y la asignación en sí se cancela.
+
+Si el objeto principal (el que declara la asociación has_one) no se guarda (es decir, new_record? Devuelve true) los objetos secundarios no se guardan. Automáticamente cuando se guarda el objeto principal.
+
+Si desea asignar un objeto a una asociación has_one sin guardar el objeto, utilice el método association.build.
+
+4.3 Referencia de la asociación has_many
+La asociación has_many crea una relación uno-a-muchos con otro modelo. En términos de base de datos, esta asociación dice que la otra clase tendrá una clave externa que se refiere a instancias de esta clase.
+
+4.3.1 Métodos Añadidos por has_many
+
+Cuando declara una asociación has_many, la clase declarante obtiene automáticamente 16 métodos relacionados con la asociación:
+
+collection
+collection<<(object, ...)
+collection.delete(object, ...)
+collection.destroy(object, ...)
+collection=(objects)
+collection_singular_ids
+collection_singular_ids=(ids)
+collection.clear
+collection.empty?
+collection.size
+collection.find(...)
+collection.where(...)
+collection.exists?(...)
+collection.build(attributes = {}, ...)
+collection.create(attributes = {})
+collection.create!(attributes = {})
+
+En todos estos métodos, la palabra collection se reemplaza con el símbolo pasado como el primer argumento a has_many, y collection_singular se reemplaza con la versión singularizada de ese símbolo. Por ejemplo, dada la declaración:
+
+class Author < ApplicationRecord
+  has_many :books
+end
+
+Cada instancia del modelo Author tendrá estos métodos:
+
+books
+books<<(object, ...)
+books.delete(object, ...)
+books.destroy(object, ...)
+books=(objects)
+book_ids
+book_ids=(ids)
+books.clear
+books.empty?
+books.size
+books.find(...)
+books.where(...)
+books.exists?(...)
+books.build(attributes = {}, ...)
+books.create(attributes = {})
+books.create!(attributes = {})
+
+4.3.1.1 collection
+
+El método collection devuelve un array de todos los objetos asociados. Si no hay objetos asociados, devuelve un array vacío.
+
+@books = @author.books
+
+4.3.1.2 collection<<(object, ...)
+
+El método collection<< agrega uno o más objetos a la colección fijando sus llaves foraneas a la llave primaria del modelo llamante.
+
+@author.books << @book1
+
+4.3.1.3 collection.delete(object, ...)
+
+El método collection.delete elimina uno o más objetos de la colección estableciendo sus claves foráneas en NULL.
+
+@author.books.delete(@book1)
+
+Además, los objetos se destruirán si están asociados con dependent: :destroy y se eliminan si están asociados con dependent: :delete_all.
+
+4.3.1.4 collection.destroy (object, ...)
+
+El método collection.destroy elimina uno o más objetos de la colección ejecutando destroy en cada objeto.
+
+@author.books.destroy(@book1)
+
+Los objetos siempre se eliminarán de la base de datos, ignorando la opción :dependent.
+
+4.3.1.5 collection=(objects)
+
+El método collection= hace que la colección contenga sólo los objetos suministrados, agregando y eliminando según corresponda. Los cambios son persistentes en la base de datos.
+
+4.3.1.6 collection_singular_ids
+
+El método collection_singular_ids devuelve un array de ids de los objetos de la colección.
+
+@book_ids = @author.book_ids
+
+4.3.1.7 collection_singular_ids=(ids)
+
+El método collection_singular_ids= hace que la colección contenga sólo los objetos identificados por los valores de clave foránea suministrados, añadiendo y eliminando según corresponda. Los cambios son persistentes en la base de datos.
+
+4.3.1.8 collection.clear
+
+El método collection.clear elimina todos los objetos de la colección de acuerdo con la estrategia especificada por la opción dependiente. Si no se da ninguna opción, sigue la estrategia predeterminada. La estrategia predeterminada para has_many: through associations es delete_all, y para has_many associations es establecer las claves externas en NULL.
+
+@author.books.clear
+
+Los objetos se eliminarán si están asociados con dependent: :destroy, al igual que dependent: :delete_all.
+
+4.3.1.9 collection.empty?
+
+ El Método collection.empty? devuelve true si la colección no contiene ningún objeto asociado.
+
+<% if @author.books.empty? %>
+  No Books Found
+<% end %>
+
+4.3.1.10 collection.size
+
+El método collection.size devuelve el número de objetos de la colección.
+
+@book_count = @author.books.size
+
+4.3.1.11 collection.find(...)
+El método collection.find encuentra objetos dentro de la colección. Utiliza la misma sintaxis y opciones como ActiveRecord::Base.find.
+
+@available_books = @author.books.find(1)
+
+4.3.1.12 collection.where(...)
+El método collection.where encuentra objetos dentro de la colección basados en las condiciones suministradas, pero los objetos se cargan perezosamente, lo que significa que la base de datos se consulta sólo cuando se accede a los objetos.
+
+@available_books = @author.books.where(available: true) # No query yet
+@available_book = @available_books.first # Now the database will be queried
+
+4.3.1.13 collection.exists?(...)
+
+El metodo collection.exists? comprueba si existe un objeto que cumple las condiciones suministradas en la colección. Utiliza la misma sintaxis y opciones como ActiveRecord::Base.exists?.
+
+4.3.1.14 collection.build (attributes = {}, ...)
+
+El método collection.build devuelve una sola o una matriz de nuevos objetos del tipo asociado. Los objetos serán instanciados a partir de los atributos pasados y el enlace a través de su clave externa se creará, pero los objetos asociados no se guardarán todavía.
+
+@book = @author.books.build(published_at: Time.now,
+                                book_number: "A12345")
+
+@books = @author.books.build([
+  { published_at: Time.now, book_number: "A12346" },
+  { published_at: Time.now, book_number: "A12347" }
+])
+
+4.3.1.15 collection.create(attributes = {})
+El método collection.create devuelve una sola o una matriz de nuevos objetos del tipo asociado. Los objetos serán instanciados a partir de los atributos pasados, se creará el enlace a través de su clave externa y, una vez que se pasen todas las validaciones especificadas en el modelo asociado, se guardará el objeto asociado.
+
+@book = @author.books.create(published_at: Time.now,
+                                 book_number: "A12345")
+
+@books = @author.books.create([
+  { published_at: Time.now, book_number: "A12346" },
+  { published_at: Time.now, book_number: "A12347" }
+])
+
+4.3.1.16 collection.create!(attributes = {})
+Hace lo mismo que el anterior collection.create, pero dispara ActiveRecord::RecordInvalid si el registro no es válido.
+
+4.3.2 Opciones para has_many
+
+Mientras que Rails utiliza valores predeterminados inteligentes que funcionarán bien en la mayoría de las situaciones, puede haber ocasiones en las que desee personalizar el comportamiento de la referencia de asociación has_many. Tales personalizaciones pueden realizarse fácilmente pasando opciones al crear la asociación. Por ejemplo, esta asociación utiliza dos opciones:
+
+class Author < ApplicationRecord
+  has_many :books, dependent: :delete_all, validate: false
+end
+
+La asociación has_many soporta estas opciones:
+
+:as
+:autosave
+:class_name
+:counter_cache
+:dependent
+:foreign_key
+
+:inverse_of
+:primary_key
+:source
+:source_type
+:through
+:validate
+
+4.3.2.1: as
+
+Establecer la opción: as indica que se trata de una asociación polimórfica, como se ha explicado anteriormente en esta guía.
+
+4.3.2.2: autosave
+
+Si configura la opción: autosave en true, Rails guardará todos los miembros cargados y destruirá los miembros marcados para su destrucción cada vez que guarde el objeto principal.
+
+4.3.2.3: class_name
+
+Si el nombre del otro modelo no puede derivarse del nombre de la asociación, puede utilizar la opción: class_name para proporcionar el nombre del modelo. Por ejemplo, si un autor tiene muchos libros, pero el nombre real del modelo que contiene los libros es Transacción, configurarías las cosas de esta manera:
+
+class Author < ApplicationRecord
+  has_many :books, class_name: "Transaction"
+end
+
+4.3.2.4: counter_cache
+
+Esta opción se puede utilizar para configurar un nombre personalizado denominado: counter_cache. Sólo necesita esta opción cuando personaliza el nombre de su: counter_cache en la asociación belongs_to.
+
+4.3.2.5 :dependent
+
+Controla qué sucede con los objetos asociados cuando se destruye a su propietario:
+
+:destroy hace que todos los objetos asociados también sean destruidos
+:delete_all hace que todos los objetos asociados sean eliminados directamente de la base de datos (por lo que las devoluciones de llamada no se ejecutarán)
+:nullify hace que las claves externas se establezcan en NULL. Las devoluciones de llamada no se ejecutan.
+:restrict_with_exception provoca que se genere una excepción si hay registros asociados
+:restrict_with_error causa que se agregue un error al propietario si hay objetos asociados
+
+4.3.2.6: foreign_key
+
+Por convención, Rails asume que la columna utilizada para mantener la clave externa en el otro modelo es el nombre de este modelo con el sufijo _id añadido. La opción: foreign_key le permite establecer el nombre de la clave externa directamente:
+
+class Author < ApplicationRecord
+  has_many :books, foreign_key: "cust_id"
+end
+
+En cualquier caso, Rails no creará columnas de clave externa para usted. Debe definirlos explícitamente como parte de sus migraciones.
+
+4.3.2.7 :inverse_of
+La opción: inverse_of especifica el nombre de la asociación belongs_to que es la inversa de esta asociación. No funciona en combinación con las opciones: through o: as.
+
+class Author < ApplicationRecord
+  has_many :books, inverse_of: :author
+end
+
+class Book < ApplicationRecord
+  belongs_to :author, inverse_of: :books
+end
+
+4.3.2.8: primary_key
+
+Por convención, Rails asume que la columna utilizada para mantener la clave primaria de la asociación es id. Puede sobrescribirlo y especificar explícitamente la clave principal con la opción: primary_key.
+
+Digamos que la tabla users tiene id como primary_key pero también tiene una columna guid. El requisito es que la tabla todos debe contener el valor de la columna guid como la clave extranjera y no el valor id. Esto se puede lograr así:
+
+class User < ApplicationRecord
+  has_many :todos, primary_key: :guid
+end
+
+Ahora, si ejecutamos @todo = @ user.todos.create entonces el valor user_id del registro @todo será el valor de guid de @user.
+
+4.3.2.9: source
+
+La opción: source especifica el nombre de la asociación de origen para una asociación has_many: through. Sólo es necesario utilizar esta opción si el nombre de la asociación de origen no puede deducirse automáticamente del nombre de la asociación.
+
+4.3.2.10: source_type
+
+La opción: source_type especifica el tipo de asociación fuente para un has_many: a través de la asociación que procede a través de una asociación polimórfica.
+
+4.3.2.11: through
+
+La opción: through especifica un modelo de combinación mediante el cual realizar la consulta. Las asociaciones Has_many: through proveen una manera de implementar relaciones muchos-a-muchos, como se discutió anteriormente en esta guía.
+
+4.3.2.12: validate
+
+Si establece la opción: validate en false, los objetos asociados no se validarán cada vez que guarde este objeto. De forma predeterminada, esto es cierto: los objetos asociados se validarán cuando se guarde este objeto.
+
+4.3.3 Scope de has_many
+
+Puede haber ocasiones en las que desee personalizar la consulta utilizada por has_many. Tales personalizaciones se pueden conseguir a través de un bloque de scope. Por ejemplo:
+
+class Author < ApplicationRecord
+  has_many :books, -> { where processed: true }
+end
+
+Puede utilizar cualquiera de los métodos de consulta estándar dentro del bloque de scope. A continuación se analizan las siguientes:
+
+where
+extending
+group
+includes
+limit
+offset
+order
+readonly
+select
+distinct
+
+4.3.3.1 where
+
+El método where permite especificar las condiciones que debe cumplir el objeto asociado.
+
+class Author < ApplicationRecord
+  has_many :confirmed_books, -> { where "confirmed = 1" },
+    class_name: "Book"
+end
+
+También puede establecer las condiciones mediante un hash:
+
+class Author < ApplicationRecord
+  has_many :confirmed_books, -> { where confirmed: true },
+                              class_name: "Book"
+end
+
+Si utiliza una opción hash-style where, entonces la creación de registros a través de esta asociación se escaneará automáticamente utilizando el hash. En este caso, el uso de @author.confirmed_books.create o @author.confirmed_books.build creará libros donde la columna confirmada tiene el valor true.
+
+4.3.3.2 extending
+
+El método extending especifica un módulo con nombre para extender el proxy de asociación. Las extensiones de la asociación se discuten en detalle más adelante en esta guía.
+
+4.3.3.3 group
+
+El método group proporciona un nombre de atributo para agrupar el conjunto de resultados, utilizando una cláusula GROUP BY en el buscador SQL.
+
+class Author < ApplicationRecord
+  has_many :line_items, -> { group 'books.id' },
+                        through: :books
+end
+
+4.3.3.4 includes
+
+Puede utilizar el método includes para especificar asociaciones de segundo orden que deben cargarse con impaciencia cuando se utiliza esta asociación. Por ejemplo, considere estos modelos:
+
+class Author < ApplicationRecord
+  has_many :books
+end
+
+class Book < ApplicationRecord
+  belongs_to :author
+  has_many :line_items
+end
+
+class LineItem < ApplicationRecord
+  belongs_to :book
+end
+
+Si con frecuencia recupera line_items directamente de los Author (@author.books.line_items), puede hacer que su código sea algo más eficiente al incluir elementos de línea en la asociación de autores a libros:
+
+class Author < ApplicationRecord
+  has_many :books, -> { includes :line_items }
+end
+
+class Book < ApplicationRecord
+  belongs_to :author
+  has_many :line_items
+end
+
+class LineItem < ApplicationRecord
+  belongs_to :book
+end
+
+4.3.3.5 limit
+
+El método limit le permite restringir el número total de objetos que se obtendrán a través de una asociación.
+
+class Author < ApplicationRecord
+  has_many :recent_books,
+    -> { order('published_at desc').limit(100) },
+    class_name: "Book",
+end
+
+4.3.3.6 offset
+
+El método offset le permite especificar el desplazamiento inicial para buscar objetos a través de una asociación. Por ejemplo, -> {offset (11)} saltará los primeros 11 registros.
+
+4.3.3.7 order
+
+El método order determina el orden en el que se recibirán los objetos asociados (en la sintaxis utilizada por una cláusula SQL ORDER BY).
+
+class Author < ApplicationRecord
+  has_many :books, -> { order "date_confirmed DESC" }
+end
+
+4.3.3.8 readonly
+
+Si utiliza el método readonly, los objetos asociados serán de sólo lectura cuando se recuperen a través de la asociación.
+
+4.3.3.9 select
+El método select le permite anular la cláusula SQL SELECT que se utiliza para recuperar datos sobre los objetos asociados. De forma predeterminada, Rails recupera todas las columnas.
+
+Si especifica su propia selección, asegúrese de incluir la clave principal y las columnas de clave externa del modelo asociado. Si no lo hace, Rails lanzará un error.
+
+4.3.3.10 distinct
+
+Utilice el método distinct para mantener la colección libre de duplicados. Esto es útil en su mayoría con la opción: through.
+
+class Person < ApplicationRecord
+  has_many :readings
+  has_many :articles, through: :readings
+end
+
+person = Person.create(name: 'John')
+article   = Article.create(name: 'a1')
+person.articles << article
+person.articles << article
+person.articles.inspect # => [#<Article id: 5, name: "a1">, #<Article id: 5, name: "a1">]
+Reading.all.inspect     # => [#<Reading id: 12, person_id: 5, article_id: 5>, #<Reading id: 13, person_id: 5, article_id: 5>]
+
+En el caso anterior hay dos readings y person.articles saca a relucir a ambos, aunque estos registros apuntan al mismo artículo.
+
+Ahora vamos a setear distinct:
+
+class Person
+  has_many :readings
+  has_many :articles, -> { distinct }, through: :readings
+end
+
+person = Person.create(name: 'Honda')
+article   = Article.create(name: 'a1')
+person.articles << article
+person.articles << article
+person.articles.inspect # => [#<Article id: 7, name: "a1">]
+Reading.all.inspect     # => [#<Reading id: 16, person_id: 7, article_id: 7>, #<Reading id: 17, person_id: 7, article_id: 7>]
+
+En el caso anterior todavía hay dos lecturas. Sin embargo person.articles muestra sólo un artículo porque la colección carga sólo registros únicos.
+
+Si desea asegurarse de que, al insertar, todos los registros de la asociación persistente son distintos (para que pueda estar seguro de que al inspeccionar la asociación que nunca encontrará registros duplicados), debe agregar un índice único en La propia tabla. Por ejemplo, si tiene una tabla denominada readings y desea asegurarse de que los artículos sólo se pueden agregar a una persona una vez, podría agregar lo siguiente en una migración:
+
+add_index :readings, [:person_id, :article_id], unique: true
+
+Una vez que tenga este índice único, intentar agregar el artículo a una persona dos veces disparará un error de ActiveRecord::RecordNotUnique
+
+person = Person.create(name: 'Honda')
+article = Article.create(name: 'a1')
+person.articles << article
+person.articles << article # => ActiveRecord::RecordNotUnique
+
+Tenga en cuenta que la comprobación de la singularidad con algo como include? Está sujeto a condiciones de carrera. No intenta utilizar include? Para reforzar la distinción en una asociación. Por ejemplo, usando el ejemplo del artículo de arriba, el código siguiente sería racy porque varios usuarios podrían estar intentando esto al mismo tiempo:
+
+person.articles << article unless person.articles.include?(article)
+
+4.3.4 ¿Cuándo se guardan los objetos?
+Cuando asigna un objeto a una asociación has_many, ese objeto se guarda automáticamente (para actualizar su clave externa). Si asigna varios objetos en una sentencia, todos ellos se guardan.
+
+Si alguno de estos registros falla debido a errores de validación, la instrucción de asignación devuelve false y la asignación en sí se cancela.
+
+Si el objeto principal (el que declara la asociación has_many) no se guarda (es decir, new_record? Devuelve true), los objetos secundarios no se guardan cuando se agregan. Todos los miembros no guardados de la asociación se guardarán automáticamente cuando se guarda el padre.
+
+Si desea asignar un objeto a una asociación has_many sin guardar el objeto, utilice el método collection.build.
+
+4.4 Referencia de la Asociación has_and_belongs_to_many
+La asociación has_and_belongs_to_many crea una relación many-to-many con otro modelo. En términos de base de datos, esto asocia dos clases a través de una tabla de unión intermedia que incluye claves externas que se refieren a cada una de las clases.
+
+4.4.1 Métodos Añadido por has_and_belongs_to_many
+
+Cuando declara una asociación has_and_belongs_to_many, la clase declarante obtiene automáticamente 16 métodos relacionados con la asociación:
+
+collection
+collection<<(object, ...)
+collection.delete(object, ...)
+collection.destroy(object, ...)
+collection=(objects)
+collection_singular_ids
+collection_singular_ids=(ids)
+collection.clear
+collection.empty?
+collection.size
+collection.find(...)
+collection.where(...)
+collection.exists?(...)
+collection.build(attributes = {})
+collection.create(attributes = {})
+collection.create!(attributes = {})
+
+En todos estos métodos, la colección se sustituye por el símbolo pasado como el primer argumento a has_and_belongs_to_many, y collection_singular es reemplazado por la versión singularizada de ese símbolo. Por ejemplo, dada la declaración:
+
+class Part < ApplicationRecord
+  has_and_belongs_to_many :assemblies
+end
+
+Cada instancia del modelo de Part tendrá estos métodos:
+assemblies
+assemblies<<(object, ...)
+assemblies.delete(object, ...)
+assemblies.destroy(object, ...)
+assemblies=(objects)
+assembly_ids
+assembly_ids=(ids)
+assemblies.clear
+assemblies.empty?
+assemblies.size
+assemblies.find(...)
+assemblies.where(...)
+assemblies.exists?(...)
+assemblies.build(attributes = {}, ...)
+assemblies.create(attributes = {})
+assemblies.create!(attributes = {})
+
+4.4.1.1 Métodos de columna adicionales
+
+Si la tabla de unión de una asociación has_and_belongs_to_many tiene columnas adicionales más allá de las dos claves foráneas, estas columnas se agregarán como atributos a los registros recuperados a través de esa asociación. Los registros devueltos con atributos adicionales siempre serán de sólo lectura, ya que Rails no puede guardar los cambios en esos atributos.
+
+El uso de atributos adicionales en la tabla de combinación en una asociación has_and_belongs_to_many está obsoleto. Si requiere este tipo de comportamiento complejo en la tabla que une dos modelos en una relación muchos-a-muchos, debería usar una asociación has_many: through en lugar de has_and_belongs_to_many.
+
+4.4.1.2 collection
+
+El método collection devuelve una matriz de todos los objetos asociados. Si no hay objetos asociados, devuelve una matriz vacía.
+
+@assemblies = @part.assemblies
+
+4.4.1.3 collection<<(object, ...)
+
+El método collection << agrega uno o más objetos a la colección creando registros en la tabla de unión.
+
+Este método se denomina collection.concat y collection.push.
+
+4.4.1.4 collection.delete (object, ...)
+
+El método collection.delete elimina uno o más objetos de la colección eliminando registros en la tabla de unión. Esto no destruye los objetos.
+
+@part.assemblies.delete(@assembly1)
+
+4.4.1.5 collection.destroy (object, ...)
+
+El método collection.destroy elimina uno o más objetos de la colección eliminando registros en la tabla de unión. Esto no destruye los objetos.
+
+@part.assemblies.destroy(@ assembly1)
+
+4.4.1.6 collection = (objects)
+
+El método collection = hace que la colección contenga sólo los objetos suministrados, agregando y eliminando según corresponda. Los cambios son persistentes en la base de datos.
+
+4.4.1.7 collection_singular_ids
+
+El método collection_singular_ids devuelve una matriz de ids de los objetos de la colección.
+
+@assembly_ids = @part.assembly_ids
+
+4.4.1.8 collection_singular_ids = (ids)
+
+El método collection_singular_ids = hace que la colección contenga sólo los objetos identificados por los valores de clave primaria suministrados, añadiendo y eliminando según corresponda. Los son persistentes en la base de datos.
+
+4.4.1.9 collection.clear
+
+El método collection.clear elimina todos los objetos de la colección eliminando las filas de la tabla de unión. Esto no destruye los objetos asociados.
+
+4.4.1.10 collection.empty?
+
+El metodo collection.empty? devuelve true si la colección no contiene ningún objeto asociado.
+
+<% If @ part.assemblies.empty? Unesdoc.unesco.org unesdoc.unesco.org
+   Esta parte no se utiliza en ninguna asamblea
+<% End%>
+
+4.4.1.11 collection.size
+
+El método collection.size devuelve el número de objetos de la colección.
+
+@assembly_count = @ part.assemblies.size
+
+4.4.1.12 collection.find (...)
+
+El método collection.find encuentra objetos dentro de la colección. Utiliza la misma sintaxis y opciones como ActiveRecord :: Base.find. También agrega la condición adicional de que el objeto debe estar en la colección.
+
+@assembly = @ part.assemblies.find (1)
+
+4.4.1.13 collection.where (...)
+
+El método collection.where encuentra objetos dentro de la colección basados en las condiciones suministradas, pero los objetos se cargan perezosamente, lo que significa que la base de datos se consulta sólo cuando se accede a los objetos. También agrega la condición adicional de que el objeto debe estar en la colección.
+
+@new_assemblies = @part.assemblies.where("created_at>?", 2.days.ago)
+
+4.4.1.14 collection.exists? (...)
+
+El metodo collection.exist? comprueba si existe un objeto que cumple las condiciones suministradas en la colección. Utiliza la misma sintaxis y opciones como ActiveRecord::Base.exists?.
+
+4.4.1.15 collection.build(attributes = {})
+
+El método collection.build devuelve un nuevo objeto del tipo asociado. Este objeto se instanciará a partir de los atributos pasados y se creará el vínculo a través de la tabla de unión, pero el objeto asociado aún no se guardará.
+
+@assembly = @part.assemblies.build({assembly_name: "Transmission housing"})
+
+4.4.1.16 collection.create(attributes = {})
+
+El método collection.create devuelve un nuevo objeto del tipo asociado. Este objeto se instanciará a partir de los atributos pasados, se creará el vínculo a través de la tabla de unión y, una vez que se pasen todas las validaciones especificadas en el modelo asociado, se guardará el objeto asociado.
+
+@assembly = @part.assemblies.create({assembly_name: "Transmission housing"})
+
+4.4.1.17 collection.create!(attributes = {})
+
+Hace lo mismo que collection.create, pero dispara un ActiveRecord::RecordInvalid si el registro no es válido.
+
+4.4.2 Opciones para has_and_belongs_to_many
+
+Mientras que Rails utiliza valores predeterminados inteligentes que funcionarán bien en la mayoría de las situaciones, puede haber ocasiones en las que desee personalizar el comportamiento de la referencia de asociación has_and_belongs_to_many. Tales personalizaciones pueden realizarse fácilmente pasando opciones al crear la asociación. Por ejemplo, esta asociación utiliza dos opciones:
+
+class Parts < ApplicationRecord
+  has_and_belongs_to_many :assemblies, -> { readonly },
+                                       autosave: true
+end
+
+La asociación has_and_belongs_to_many soporta estas opciones:
+:association_foreign_key
+:autosave
+:class_name
+:foreign_key
+:join_table
+:validate
+
+4.4.2.1: association_foreign_key
+
+Por convención, Rails asume que la columna de la tabla de combinación utilizada para mantener la clave externa apuntando al otro modelo es el nombre de ese modelo con el sufijo _id añadido. La opción: association_foreign_key le permite establecer el nombre de la clave externa directamente:
+
+Las opciones: foreign_key y: association_foreign_key son útiles cuando se configura una self-join many-to-many. Por ejemplo:
+
+class User < ApplicationRecord
+  has_and_belongs_to_many :friends,
+      class_name: "User",
+      foreign_key: "this_user_id",
+      association_foreign_key: "other_user_id"
+end
+
+4.4.2.2: autosave
+
+Si configura la opción: autosave en true, Rails guardará todos los miembros cargados y destruirá los miembros marcados para su destrucción cada vez que guarde el objeto principal.
+
+4.4.2.3: class_name
+
+Si el nombre del otro modelo no puede derivarse del nombre de la asociación, puede utilizar la opción: class_name para proporcionar el nombre del modelo. Por ejemplo, si una parte tiene muchos ensamblajes, pero el nombre real del modelo que contiene los ensamblajes es Gadget, debería configurar las cosas de esta manera:
+
+class Parts < ApplicationRecord
+  has_and_belongs_to_many :assemblies, class_name: "Gadget"
+end
+
+4.4.2.4: foreign_key
+
+Por convención, Rails asume que la columna de la tabla de combinación utilizada para mantener la clave externa apuntando a este modelo es el nombre de este modelo con el sufijo _id añadido. La opción: foreign_key le permite establecer el nombre de la clave externa directamente:
+
+class User < ApplicationRecord
+  has_and_belongs_to_many :friends,
+      class_name: "User",
+      foreign_key: "this_user_id",
+      association_foreign_key: "other_user_id"
+end
+
+4.4.2.5: join_table
+
+Si el nombre predeterminado de la tabla de combinación, basado en ordenamiento léxico, no es lo que desea, puede utilizar la opción: join_table para sustituir el valor predeterminado.
+
+4.4.2.6: validate
+
+Si establece la opción: validate en false, los objetos asociados no se validarán cada vez que guarde este objeto. De forma predeterminada, esto es cierto: los objetos asociados se validarán cuando se guarde este objeto.
+
+4.4.3 Scope de has_and_belongs_to_many
+
+Puede haber ocasiones en las que desee personalizar la consulta utilizada por has_and_belongs_to_many. Tales personalizaciones se pueden conseguir a través de un bloque de scope. Por ejemplo:
+
+class Parts < ApplicationRecord
+  has_and_belongs_to_many :assemblies, -> { where active: true }
+end
+
+Puede utilizar cualquiera de los métodos de consulta estándar dentro del bloque de ámbito. A continuación se analizan las siguientes:
+
+where
+extending
+group
+includes
+limit
+offset
+order
+readonly
+select
+distinct
+
+4.4.3.1 where
+
+El método where permite especificar las condiciones que debe cumplir el objeto asociado.
+
+class Parts < ApplicationRecord
+  has_and_belongs_to_many :assemblies,
+    -> { where "factory = 'Seattle'" }
+end
+
+También puede establecer las condiciones mediante un hash:
+
+class Parts < ApplicationRecord
+  has_and_belongs_to_many :assemblies,
+    -> { where factory: 'Seattle' }
+end
+
+Si utiliza un estilo hash para el where, a continuación, la creación de registros a través de esta asociación se escaneará automáticamente utilizando el hash. En este caso, usar @parts.assemblies.create o @parts.assemblies.build creará órdenes donde la columna de fábrica tiene el valor "Seattle".
+
+4.4.3.2 extending
+
+El método extendido especifica un módulo con nombre para extender el proxy de asociación. Las extensiones de la asociación se discuten en detalle más adelante en esta guía.
+
+4.4.3.3 group
+
+El método de grupo proporciona un nombre de atributo para agrupar el conjunto de resultados, utilizando una cláusula GROUP BY en el buscador SQL.
+
+class Parts < ApplicationRecord
+  has_and_belongs_to_many :assemblies, -> { group "factory" }
+end
+
+4.4.3.4 includes
+
+Puede utilizar el método includes para especificar asociaciones de segundo orden que deben cargarse con impaciencia cuando se utiliza esta asociación.
+
+4.4.3.5 limit
+
+El método de límite le permite restringir el número total de objetos que se obtendrán a través de una asociación.
+
+class Parts < ApplicationRecord
+  has_and_belongs_to_many :assemblies,
+    -> { order("created_at DESC").limit(50) }
+end
+
+4.4.3.6 offset
+
+El método offset le permite especificar el desplazamiento inicial para buscar objetos a través de una asociación. Por ejemplo, si ajusta el desplazamiento (11), omitirá los primeros 11 registros.
+
+4.4.3.7 order
+
+El método de orden determina el orden en el que se recibirán los objetos asociados (en la sintaxis utilizada por una cláusula SQL ORDER BY).
+
+class Parts < ApplicationRecord
+  has_and_belongs_to_many :assemblies,
+    -> { order "assembly_name ASC" }
+end
+
+4.4.3.8 readonly
+
+Si utiliza el método readonly, los objetos asociados serán de sólo lectura cuando se recuperen a través de la asociación.
+
+4.4.3.9 select
+
+El método select le permite anular la cláusula SQL SELECT que se utiliza para recuperar datos sobre los objetos asociados. De forma predeterminada, Rails recupera todas las columnas.
+
+4.4.3.10 distinct
+
+Utilice el método distinto para quitar duplicados de la colección.
+
+4.4.4 ¿Cuándo se guardan los objetos?
+
+Cuando asigna un objeto a una asociación has_and_belongs_to_many, ese objeto se guarda automáticamente (para actualizar la tabla de unión). Si asigna varios objetos en una sentencia, todos ellos se guardan.
+
+Si alguno de estos registros falla debido a errores de validación, la instrucción de asignación devuelve false y la asignación en sí se cancela.
+
+Si el objeto principal (el que declara la asociación has_and_belongs_to_many) no se guarda (es decir, new_record? Devuelve true) los objetos secundarios no se guardan cuando se agregan. Todos los miembros no guardados de la asociación se guardarán automáticamente cuando se guarda el padre.
+
+Si desea asignar un objeto a una asociación has_and_belongs_to_many sin guardar el objeto, utilice el método collection.build.
+
+4.5 Callbacks de la asociación
+Las callbacks normales se conectan al ciclo de vida de los objetos Active Record, permitiéndole trabajar con esos objetos en varios puntos. Por ejemplo, puede utilizar una callbacks before_save para hacer que algo suceda justo antes de guardar un objeto.
+
+Las callbacks de la asociación son similares a las callbacks normales, pero son activadas por eventos en el ciclo de vida de una colección. Existen cuatro callbacks de asociación disponibles:
+
+before_add
+after_add
+before_remove
+after_remove
+
+Define las callbacks de asociación agregando opciones a la declaración de asociación. Por ejemplo:
+
+class Author < ApplicationRecord
+  has_many :books, before_add: :check_credit_limit
+
+  def check_credit_limit(book)
+    ...
+  end
+end
+
+Rails pasa el objeto que se agrega o se elimina a la callback.
+
+Puede apilar callbacks en un solo evento pasándolas como una matriz:
+
+class Author < ApplicationRecord
+  has_many :books,
+    before_add: [:check_credit_limit, :calculate_shipping_charges]
+
+  def check_credit_limit(book)
+    ...
+  end
+  def calculate_shipping_charges(book)
+    ...
+  end
+end
+
+Si una callback before_add lanza una excepción, el objeto no se agrega a la colección. Del mismo modo, si una callback before_remove produce una excepción, el objeto no se quita de la colección.
+
+4.6 Extensiones de la asociación
+No se limita a la funcionalidad que Rails crea automáticamente en objetos proxy de asociación. También puede ampliar estos objetos a través de módulos anónimos, agregando nuevos buscadores, creadores u otros métodos. Por ejemplo:
+
+class Author < ApplicationRecord
+  has_many :books do
+    def find_by_book_prefix(book_number)
+      find_by(category_id: book_number[0..2])
+    end
+  end
+end
+
+Si tiene una extensión que debe ser compartida por muchas asociaciones, puede utilizar un módulo de extensión con nombre. Por ejemplo:
+
+module FindRecentExtension
+  def find_recent
+    where("created_at > ?", 5.days.ago)
+  end
+end
+
+class Author < ApplicationRecord
+  has_many :books, -> { extending FindRecentExtension }
+end
+
+class Supplier < ApplicationRecord
+  has_many :deliveries, -> { extending FindRecentExtension }
+end
+
+Las extensiones pueden referirse a los internos del proxy de asociación utilizando estos tres atributos del accesor de proxy_association:
+
+proxy_association.owner devuelve el objeto al que pertenece la asociación.
+proxy_association.reflection devuelve el objeto de reflexión que describe la asociación.
+proxy_association.target devuelve el objeto asociado para belongs_to o has_one, o la colección de objetos asociados para has_many o has_and_belongs_to_many.
+
+A veces, es posible que desee compartir campos y comportamiento entre diferentes modelos. Digamos que tenemos modelos de coches, motos y bicicletas. Queremos compartir los campos de color y precio y algunos métodos para todos ellos, pero teniendo un comportamiento específico para cada uno, y controladores separados también.
+
+Rails hace esto muy fácil. Primero, vamos a generar la base Modelo del vehículo:
+
+$ rails generate model vehicle type:string color:string price:decimal{10.2}
+
+¿Ha notado que estamos agregando un campo de "type"? Dado que todos los modelos se guardarán en una sola tabla de base de datos, Rails guardará en esta columna el nombre del modelo que se está guardando. En nuestro ejemplo, esto puede ser "Car", "Motorcycle" o "Bicycle". STI no funcionará sin un campo "tipo" en la tabla.
+
+A continuación, vamos a generar los tres modelos que heredan de Vehículo. Para ello, podemos usar la opción --parent=PARENT, que generará un modelo que hereda del padre especificado y sin migración equivalente (ya que la tabla ya existe).
+
+Por ejemplo, para generar el modelo de Car:
+
+$ rails generate model car --parent=Vehicle
+
+El modelo generado se verá así:
+
+class Car < Vehicle
+end
+
+Esto significa que todos los comportamientos agregados a Vehículo también están disponibles para Car, como asociaciones, métodos públicos, etc.
+
+La creación de un Car lo guardará en la tabla de Vehicule con "Car" como el campo Type:
+
+Car.create(color: 'Red', price: 10000)
+
+Generará el siguiente SQL:
+
+INSERT INTO "vehicles" ("type", "color", "price") VALUES ('Car', 'Red', 10000)
+
+Consultar los registros de automóviles solo buscará vehículos que sean automóviles:
+
+Car.all
+
+Ejecutará una consulta como:
+
+SELECT "vehicles".* FROM "vehicles" WHERE "vehicles"."type" IN ('Car')
